@@ -1,0 +1,6 @@
+hardware: a100-ae-v1
+source: A100_real_hardware
+pim_compile_mode: heuristic-PIMSAB-sim-v3
+profiled_at: '2026-09-09T16:08:25.011271'
+skew_fit:
+  enabled: false

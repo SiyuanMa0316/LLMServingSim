@@ -1,0 +1,29 @@
+{
+  "knobs": {
+    "d_model": 4096,
+    "dtype": "int8",
+    "ffn_dim": 14336,
+    "model": "meta-llama/Llama-3.1-8B",
+    "n_heads": 32,
+    "n_kv_heads": 8,
+    "pim_compile_mode": "exhaustive",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      1
+    ],
+    "vocab_size": 128256
+  },
+  "source_paths": [
+    "/home/siyuan/MultiPIMSim/LLMCompass/ae/figure5/ab/real_hardware/matmul_A100.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/ae/figure5/cf/real_hardware/softmax_A100.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/ae/figure5/de/real_hardware/layernorm_A100.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/ae/figure5/g/real_hardware/gelu_A100.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/GA100.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/models/llama.yaml",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/Newton_INT8/meta-llama/Llama-3.1-8B/int8/meta.yaml",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/x16_128g_newton.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/Newton_INT8/meta-llama/Llama-3.1-8B/int8/tp1/dense.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/Newton_INT8/meta-llama/Llama-3.1-8B/int8/tp1/per_sequence.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/Newton_INT8/meta-llama/Llama-3.1-8B/int8/tp1/attention.csv"
+  ]
+}
