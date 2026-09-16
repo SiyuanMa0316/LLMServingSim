@@ -6,7 +6,7 @@
     "model": "meta-llama/Llama-3.1-8B",
     "n_heads": 32,
     "n_kv_heads": 8,
-    "pim_compile_mode": "heuristic-PIMSAB-sim-v3",
+    "pim_compile_mode": "heuristic-PIMSAB",
     "profile_id": "a100-ae-v1",
     "tp_degrees": [
       1
