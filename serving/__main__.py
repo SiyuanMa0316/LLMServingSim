@@ -1011,7 +1011,7 @@ def main():
                 # is what bench compares this column against. The batch is only the
                 # subset that fit in this step's token budget.
                 running_reqs = len(schedulers[inst_id].running)
-                waiting_reqs = len([req for req in schedulers[inst_id].waiting if req.arrival <= current])
+                waiting_reqs = len([req for req in schedulers[inst_id].waiting if req.arrival <= current]) + len(schedulers[inst_id].decode_waiting)
 
                 mem = schedulers[inst_id].memory
                 npu_used_mb = mem.npu_used / MB_TO_BYTE

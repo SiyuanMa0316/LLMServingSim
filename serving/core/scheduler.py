@@ -65,6 +65,10 @@ class Scheduler:
         # Not yet admitted, sorted by (arrival, id). A preempted request is
         # prepended, as in vLLM's waiting.prepend_request().
         self.waiting = []
+        # P/D decode side: requests whose prefill finished elsewhere and that
+        # are waiting for a running slot (max_num_seqs) and KV blocks. vLLM's
+        # decode-side scheduler enforces max_num_seqs on these too.
+        self.decode_waiting = []
         self.inflight = []
         self.done = []
         self.batch_ids = -1
@@ -113,6 +117,8 @@ class Scheduler:
         # maxlen is ``max_concurrent_batches`` == ``pipeline_parallel_size``.
         if len(self.inflight) >= self.pp_size:
             return None
+
+        self._admit_decode_waiting()
 
         token_budget = self.max_num_batched_tokens
         # (request, tokens scheduled, num_computed_tokens before this step)
@@ -475,25 +481,43 @@ class Scheduler:
         The KV transfer itself is already charged: the prefill instance's trace
         carries a per-layer send to the paired decode NPU. So this only claims
         the blocks -- reporting no load bytes, or the transfer would be billed
-        twice.
+        twice. A request that arrives while ``max_num_seqs`` requests are
+        already running (or the pool has no room) waits in ``decode_waiting``
+        and is claimed by ``_admit_decode_waiting`` as slots free up.
         """
+        self.decode_waiting.append(req)
+        self._admit_decode_waiting()
+
+    def _admit_decode_waiting(self):
+        while self.decode_waiting and len(self.running) < self.max_num_seqs:
+            req = self.decode_waiting[0]
+            if not self._claim_decode(req):
+                if not self.running and not self.inflight:
+                    raise RuntimeError(
+                        f"[Scheduler] [node_id={self.node_id},inst={self.instance_id}] decode "
+                        f"instance cannot admit request {req.id}: {req.num_tokens_reached} tokens "
+                        f"need more blocks than the pool has free "
+                        f"({self.kv.npu_pool.get_num_free_blocks()} of {self.kv.npu_pool.num_blocks})"
+                    )
+                break
+            self.decode_waiting.pop(0)
+
+    def _claim_decode(self, req):
+        prev_instance_id, prev_status = req.instance_id, req.status
         req.instance_id = self.instance_id
         req.status = RequestStatus.RUNNING
         hit_blocks, num_npu_hit, num_lower_hit = self.kv.get_computed_blocks(req)
         num_computed = req.num_computed_tokens
         if self.kv.allocate_slots(req, 1, hit_blocks, num_npu_hit, num_lower_hit) is None:
-            raise RuntimeError(
-                f"[Scheduler] [node_id={self.node_id},inst={self.instance_id}] decode "
-                f"instance cannot admit request {req.id}: {req.num_tokens_reached} tokens "
-                f"need more blocks than the pool has free "
-                f"({self.kv.npu_pool.get_num_free_blocks()} of {self.kv.npu_pool.num_blocks})"
-            )
+            req.instance_id, req.status = prev_instance_id, prev_status
+            return False
         req.num_computed_tokens = num_computed
         self.kv.take_traffic()          # a P/D handoff is not a recall
         self.running.append(req)
+        return True
 
     def is_request_empty(self):
-        return not self.waiting and not self.running and not self.inflight
+        return not self.waiting and not self.decode_waiting and not self.running and not self.inflight
 
     def print_result(self):
         # Extract ttft, tpot, and itl values from the completed requests

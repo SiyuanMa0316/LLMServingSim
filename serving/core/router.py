@@ -80,7 +80,7 @@ class Router:
         for offset in range(num_instances):
             idx = (start + offset) % num_instances
             sched = schedulers[idx]
-            waiting = len(sched.waiting)
+            waiting = len(sched.waiting) + len(sched.decode_waiting)
             running = len(sched.running)
             raw_score = waiting * 4 + running
             capacity = getattr(sched, "max_num_seqs", 0)
