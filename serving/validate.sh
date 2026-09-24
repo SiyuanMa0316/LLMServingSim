@@ -142,6 +142,9 @@ SCENARIOS=(
     "pd_per_instance_config|--cluster-config $C/single_node_pd_per_instance_config.json --dataset $TRACE --num-reqs 10"
     "pd_sharegpt|--cluster-config $C/single_node_pd_instance.json --dataset $SG_L --num-reqs 20"
     "moe_pd|--cluster-config $C/single_node_moe_pd_instance.json --dataset $TRACE --num-reqs 10"
+
+    # --- decode attention offloaded to another device (priced from its own bundle) ---
+    "attn_offload_dream|--cluster-config $C/single_node_single_instance_H100_INT8_dream1tb_attn_offload_qwen3_32b_tp1.json --dtype int8 --dataset $SG_Q32 --num-reqs 20"
     "heterogeneous|--cluster-config $C/single_node_heterogeneous.json --dataset $SG_Q32 --num-reqs 10"
 
     # --- PIM offloading ---

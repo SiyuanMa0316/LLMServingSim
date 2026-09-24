@@ -201,6 +201,24 @@ def _resolve_mem_util(instance, cli_default):
     return util
 
 
+def _resolve_attn_offload(instance, instance_id):
+    """Optional per-instance ``decode_attention_offload``: decode attention runs on
+    another device priced from its own profile bundle, e.g.
+    {"hardware": "DREAM_1TB_INT8", "link_bw": 64, "link_latency": 2000}
+    (link_bw in GB/s, link_latency in ns per direction). The instance's own device
+    keeps prefill and the dense layers."""
+    cfg = instance.get("decode_attention_offload")
+    if not cfg:
+        return None
+    missing = {"hardware", "link_bw", "link_latency"} - set(cfg)
+    if missing:
+        raise ValueError(f"Instance {instance_id} decode_attention_offload is missing {sorted(missing)}")
+    if instance.get("pd_type") or instance.get("enable_attn_offloading"):
+        raise ValueError(f"Instance {instance_id}: decode_attention_offload cannot be combined "
+                         f"with pd_type or enable_attn_offloading")
+    return dict(cfg)
+
+
 def _build_instance_runtime_configs(instances, args, dtype_to_bits):
     runtime_configs = []
     for instance_id, instance in enumerate(instances):
@@ -244,6 +262,7 @@ def _build_instance_runtime_configs(instances, args, dtype_to_bits):
             "enable_attn_offloading": enable_attn_offloading,
             "enable_sub_batch_interleaving": enable_sub_batch_interleaving,
             "enable_block_copy": instance.get("enable_block_copy", args.enable_block_copy),
+            "attn_offload": _resolve_attn_offload(instance, instance_id),
         })
     return runtime_configs
 
@@ -813,6 +832,7 @@ def main():
                                        tp_dim=inst.get("tp_dim"), ep_dim=inst.get("ep_dim"),
                                        dp_sum_total_len=sum_total_len,
                                        enable_block_copy=inst_cfg["enable_block_copy"],
+                                       attn_offload=inst_cfg["attn_offload"],
                                        inputs_root=run_paths.inputs_root)
                         generate_graph(batch, inst["hardware"], inst["num_npus"], nid,
                                        inst_id, inst2npu_mapping[inst_id],
@@ -901,6 +921,7 @@ def main():
                                            tp_dim=inst.get("tp_dim"), ep_dim=inst.get("ep_dim"),
                                            dp_sum_total_len=sum_total_len,
                                            enable_block_copy=inst_cfg["enable_block_copy"],
+                                           attn_offload=inst_cfg["attn_offload"],
                                            inputs_root=run_paths.inputs_root)
                             generate_graph(batch, inst["hardware"], inst["num_npus"], nid,
                                            inst_id, inst2npu_mapping[inst_id],
@@ -944,6 +965,7 @@ def main():
                                    dtype=inst_cfg["dtype"], kv_cache_dtype=inst_cfg["kv_cache_dtype"],
                                    tp_dim=instance["tp_dim"], ep_dim=instance["ep_dim"],
                                    enable_block_copy=inst_cfg["enable_block_copy"],
+                                   attn_offload=inst_cfg["attn_offload"],
                                    inputs_root=run_paths.inputs_root)
                     generate_graph(new_req, instance["hardware"], instance["num_npus"], node_id,
                                    instance_id, inst2npu_mapping[instance_id],

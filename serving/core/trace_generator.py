@@ -111,6 +111,7 @@ class TraceCtx:
     tp_dim: list       # involved_dim for TP collectives (ALLREDUCE), None = all dims
     ep_dim: list       # involved_dim for EP collectives (ALLTOALL), None = all dims
     dp_sum_total_len: int  # sum of total_len across DP group (0 = DP inactive). Captures the post-AG gathered size for MoE compute; dummy batches are pre-padded to max by serving/__main__.py so the sum reflects vLLM's CUDA-graph padding.
+    attn_offload: dict = None  # decode attention runs on another device: {perf_db, link_bw, link_latency}; None = off
 
 
 @dataclass
@@ -898,7 +899,7 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
                      placement, gate, enable_attn_offloading, power_model, pim_model, pd_type,
                      variant, kv_cache_dtype='auto',
                      runtime_max_num_batched_tokens=None, runtime_max_num_seqs=None,
-                     tp_dim=None, ep_dim=None, dp_sum_total_len=0):
+                     tp_dim=None, ep_dim=None, dp_sum_total_len=0, attn_offload=None):
     model_type = config.get('model_type')
     if not model_type:
         raise KeyError(
@@ -916,6 +917,17 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
     head_dim = config.get('head_dim', n_embd // n_head)
     is_moe = gate is not None
 
+    offload = None
+    if attn_offload:
+        if int(tp_size) != 1 or pp_size != 1 or pd_type is not None or enable_attn_offloading:
+            raise ValueError("decode_attention_offload supports only a single-NPU instance "
+                             "(tp_size=1, pp_size=1, no pd_type, no enable_attn_offloading)")
+        offload = dict(
+            perf_db=_load_perf_db(attn_offload["hardware"], model, variant, tp_needed, model_type),
+            link_bw=float(attn_offload["link_bw"]),          # GB/s == bytes per ns
+            link_latency=int(attn_offload["link_latency"]),  # ns, per direction
+        )
+
     pim_channels = 0
     if enable_attn_offloading and pim_model is not None:
         pim_config = pim_model.get_config()
@@ -932,6 +944,7 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
         pd_type=pd_type,
         tp_size=tp_size, pp_size=pp_size, local_ep=local_ep, ep_total=ep_total,
         tp_dim=tp_dim, ep_dim=ep_dim, dp_sum_total_len=dp_sum_total_len,
+        attn_offload=offload,
     )
 
 
@@ -990,6 +1003,39 @@ def _layer_category(perf_db, layer_name):
     return None
 
 
+def _offload_attention_latency_ns(ctx, bctx):
+    """Attention latency when decode attention runs on another device (DREAM).
+
+    Per layer the host computes qkv_proj, ships each decode token's Q/K/V to the
+    attention device, which holds the decode KV cache, waits for its attention output,
+    then continues with o_proj. A prefill chunk's freshly computed K/V is streamed to
+    the attention device as well, sharing the link with the decode traffic (charged
+    ahead of it, conservatively), like the P/D handoff. The host's own prefill
+    attention runs concurrently with the offloaded decode attention, so the layer
+    takes the longer of the two.
+    """
+    off = ctx.attn_offload
+    kv_bytes_per_token = 2 * ctx.kv_head * ctx.head_dim * ctx.kv_fp
+    chunk_kv_bytes = kv_bytes_per_token * bctx.prefill_chunk
+    t_prefill = 0
+    if bctx.prefill_chunk > 0:
+        t_prefill = _lookup_attention_with_skew(
+            ctx.perf_db, ctx.tp_size, bctx.prefill_chunk, bctx.kv_prefill, 0, 0, 0, 0)
+    t_offload = 0
+    if bctx.n_decode > 0:
+        q_bytes = ctx.n_head * ctx.head_dim * ctx.fp
+        in_bytes = bctx.n_decode * (q_bytes + kv_bytes_per_token)
+        out_bytes = bctx.n_decode * q_bytes
+        t_attn = _lookup_attention_with_skew(
+            off["perf_db"], ctx.tp_size, 0, 0, bctx.n_decode,
+            bctx.kv_decode_mean, bctx.kv_decode_max, bctx.kv_decode_min)
+        t_offload = (2 * off["link_latency"] + (in_bytes + chunk_kv_bytes) / off["link_bw"]
+                     + t_attn + out_bytes / off["link_bw"])
+    elif chunk_kv_bytes > 0:
+        t_offload = off["link_latency"] + chunk_kv_bytes / off["link_bw"]
+    return int(max(t_prefill, t_offload))
+
+
 def _emit_layer(ctx, bctx, layer_name, lines, power_acc, batch_tag='NONE', layer_num=None,
                 comm_type='NONE', comm_size=0, input_loc='LOCAL', output_loc='LOCAL'):
     """Emit a single trace layer: lookup latency, compute sizes, format, track power."""
@@ -1003,6 +1049,8 @@ def _emit_layer(ctx, bctx, layer_name, lines, power_acc, batch_tag='NONE', layer
 
     if category == "per_sequence":
         latency_ns = _lookup_per_sequence(ctx.perf_db, layer_name, ctx.tp_size, bctx.lm_head_len)
+    elif category == "attention" and ctx.attn_offload is not None:
+        latency_ns = _offload_attention_latency_ns(ctx, bctx)
     elif category == "attention":
         latency_ns = _lookup_attention_with_skew(
             ctx.perf_db, ctx.tp_size,
@@ -1399,13 +1447,14 @@ def _synthesize_trace(hardware, model, config, tp_size, pp_size, local_ep, ep_to
                       enable_attn_offloading, power_model, pim_model, fp,
                       variant, kv_cache_dtype='auto',
                       runtime_max_num_batched_tokens=None, runtime_max_num_seqs=None,
-                      tp_dim=None, ep_dim=None, dp_sum_total_len=0):
+                      tp_dim=None, ep_dim=None, dp_sum_total_len=0, attn_offload=None):
     ctx = _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_total, node_id, fp,
                            placement, gate, enable_attn_offloading, power_model, pim_model, pd_type,
                            variant=variant, kv_cache_dtype=kv_cache_dtype,
                            runtime_max_num_batched_tokens=runtime_max_num_batched_tokens,
                            runtime_max_num_seqs=runtime_max_num_seqs,
-                           tp_dim=tp_dim, ep_dim=ep_dim, dp_sum_total_len=dp_sum_total_len)
+                           tp_dim=tp_dim, ep_dim=ep_dim, dp_sum_total_len=dp_sum_total_len,
+                           attn_offload=attn_offload)
     bctx = _build_batch_ctx(batch, ctx)
 
     logger.info(
@@ -1462,7 +1511,9 @@ def _synthesize_interleaved_trace(hardware, model, config, tp_size, pp_size, loc
                                   enable_attn_offloading, power_model, pim_model, fp,
                                   variant, kv_cache_dtype='auto',
                                   runtime_max_num_batched_tokens=None, runtime_max_num_seqs=None,
-                                  tp_dim=None, ep_dim=None, dp_sum_total_len=0):
+                                  tp_dim=None, ep_dim=None, dp_sum_total_len=0, attn_offload=None):
+    if attn_offload:
+        raise ValueError("decode_attention_offload is not supported with sub-batch interleaving")
     ctx = _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_total, node_id, fp,
                            placement, gate, enable_attn_offloading, power_model, pim_model, pd_type,
                            variant=variant, kv_cache_dtype=kv_cache_dtype,
@@ -1608,7 +1659,8 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
                    placement={}, block_mode_on=False, expert_routing_policy="BALANCED",
                    enable_prefix_caching=False, enable_attn_offloading=False, power_model=None, pim_model=None,
                    enable_sub_batch_interleaving=False, fp=16, dtype=None, kv_cache_dtype='auto',
-                   tp_dim=None, ep_dim=None, dp_sum_total_len=0, enable_block_copy=True, inputs_root=None):
+                   tp_dim=None, ep_dim=None, dp_sum_total_len=0, enable_block_copy=True, inputs_root=None,
+                   attn_offload=None):
 
     model = batch.model
     config = get_config(model)
@@ -1658,7 +1710,8 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
                         variant=variant, kv_cache_dtype=kv_cache_dtype,
                         runtime_max_num_batched_tokens=max_num_batched_tokens,
                         runtime_max_num_seqs=max_num_seqs,
-                        tp_dim=tp_dim, ep_dim=ep_dim, dp_sum_total_len=dp_sum_total_len)
+                        tp_dim=tp_dim, ep_dim=ep_dim, dp_sum_total_len=dp_sum_total_len,
+                        attn_offload=attn_offload)
     if not enable_sub_batch_interleaving:
         rows, block_starts = _synthesize_trace(*synth_args, batch, max_len, **synth_kwargs)
     else:

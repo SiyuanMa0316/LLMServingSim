@@ -51,6 +51,7 @@ pd 1661784496
 pd_per_instance_config 1661784496
 pd_sharegpt 12851061128
 moe_pd 2081236210
+attn_offload_dream 24378418166
 heterogeneous 21800606937
 pim 1643150716
 pim_sub_batch 2634096516
