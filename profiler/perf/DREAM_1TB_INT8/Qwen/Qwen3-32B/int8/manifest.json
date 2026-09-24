@@ -1,0 +1,29 @@
+{
+  "knobs": {
+    "d_model": 5120,
+    "dtype": "int8",
+    "ffn_dim": 25600,
+    "model": "Qwen/Qwen3-32B",
+    "n_heads": 64,
+    "n_kv_heads": 8,
+    "pim_compile_mode": "exhaustive",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      1
+    ],
+    "vocab_size": 151936
+  },
+  "source_paths": [
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/matmul.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/softmax.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/layernorm.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/gelu.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/GA100.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/models/qwen3.yaml",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DREAM_1TB_INT8/Qwen/Qwen3-32B/int8/meta.yaml",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/x16_1tb.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DREAM_1TB_INT8/Qwen/Qwen3-32B/int8/tp1/dense.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DREAM_1TB_INT8/Qwen/Qwen3-32B/int8/tp1/per_sequence.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DREAM_1TB_INT8/Qwen/Qwen3-32B/int8/tp1/attention.csv"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "knobs": {
+    "d_model": 4096,
+    "dtype": "int8",
+    "ffn_dim": 14336,
+    "model": "meta-llama/Llama-3.1-8B",
+    "n_heads": 32,
+    "n_kv_heads": 8,
+    "pim_compile_mode": "heuristic-GPU",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      1
+    ],
+    "vocab_size": 128256
+  },
+  "source_paths": [
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/matmul.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/softmax.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/layernorm.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/gelu.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/H100x1_sxm5_int8.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/models/llama.yaml",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/H100_INT8/meta-llama/Llama-3.1-8B/int8/meta.yaml",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/H100x1_sxm5_int8.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/H100_INT8/meta-llama/Llama-3.1-8B/int8/tp1/dense.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/H100_INT8/meta-llama/Llama-3.1-8B/int8/tp1/per_sequence.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/H100_INT8/meta-llama/Llama-3.1-8B/int8/tp1/attention.csv"
+  ]
+}
