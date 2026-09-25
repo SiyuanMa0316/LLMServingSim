@@ -42,6 +42,10 @@ class Request:
         self.itl = []
         self.recent_end = 0
 
+        # Hybrid scheduling: set when prefill finished on a hybrid instance and the
+        # request must go through the decode dispatcher; cleared by the main loop.
+        self.handoff = False
+
         # For chunked prefill
         self.chunk_len = 0  # tokens scheduled for this request in the current step
 

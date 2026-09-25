@@ -263,6 +263,7 @@ def _build_instance_runtime_configs(instances, args, dtype_to_bits):
             "enable_sub_batch_interleaving": enable_sub_batch_interleaving,
             "enable_block_copy": instance.get("enable_block_copy", args.enable_block_copy),
             "attn_offload": _resolve_attn_offload(instance, instance_id),
+            "yield_to_offload": bool(instance.get("yield_to_offload", False)),
         })
     return runtime_configs
 
@@ -584,6 +585,12 @@ def main():
     controller = Controller(total_npu)
     # Global Request Router
     router = Router(num_instances, schedulers, num_req, request_routing_policy)
+    hybrid_policy = raw_cluster_config.get("hybrid_policy")
+    if hybrid_policy:
+        router.enable_hybrid(
+            schedulers[hybrid_policy["gpu_instance"]], schedulers[hybrid_policy["dream_instance"]],
+            hybrid_policy["gpu_decode_slots"], hybrid_policy["dream_decode_slots"],
+            hybrid_policy["prefill_spill_threshold"])
     # Power Modeling if enabled
     if power_modeling:
         power_model = PowerModel(power_configs)
@@ -691,6 +698,7 @@ def main():
         # Route newly arrived requests to instances based on current load
         if dataset is not None:
             router.route_arrived_requests(current)
+            router.rebalance_prefill()
 
         instance_id = npu2inst_mapping[sys]  # get instance id from NPU id
         node_id = inst2node_mapping[instance_id] # get node id from instance id
@@ -715,6 +723,14 @@ def main():
         total_prompt += prompt_t
         gen_th += gen_t
         total_gen += gen_t
+        # Hybrid scheduling: a request whose prefill just finished goes to the decode dispatcher
+        # instead of counting as finished.
+        if schedulers[instance_id].hybrid:
+            handoffs = [r for r in finished_reqs if r.handoff]
+            finished_reqs = [r for r in finished_reqs if not r.handoff]
+            for r in handoffs:
+                r.handoff = False
+            router.enqueue_decode(handoffs)
         # count only finished requests
         req_cnt += len(finished_reqs) if instances[instance_id]["pd_type"] != "prefill" else 0
 
@@ -722,6 +738,8 @@ def main():
         if instances[instance_id]["pd_type"] != "prefill":
             for req in finished_reqs:
                 router.notify_request_completed(req.id, current)
+
+        router.dispatch_decode()
 
         # Add prefill ended requests to decode instance
         if instances[instance_id]["pd_type"] == "prefill" and len(finished_reqs) > 0:
@@ -833,6 +851,7 @@ def main():
                                        dp_sum_total_len=sum_total_len,
                                        enable_block_copy=inst_cfg["enable_block_copy"],
                                        attn_offload=inst_cfg["attn_offload"],
+                                       yield_to_offload=inst_cfg["yield_to_offload"],
                                        inputs_root=run_paths.inputs_root)
                         generate_graph(batch, inst["hardware"], inst["num_npus"], nid,
                                        inst_id, inst2npu_mapping[inst_id],
@@ -922,6 +941,7 @@ def main():
                                            dp_sum_total_len=sum_total_len,
                                            enable_block_copy=inst_cfg["enable_block_copy"],
                                            attn_offload=inst_cfg["attn_offload"],
+                                           yield_to_offload=inst_cfg["yield_to_offload"],
                                            inputs_root=run_paths.inputs_root)
                             generate_graph(batch, inst["hardware"], inst["num_npus"], nid,
                                            inst_id, inst2npu_mapping[inst_id],
@@ -966,6 +986,7 @@ def main():
                                    tp_dim=instance["tp_dim"], ep_dim=instance["ep_dim"],
                                    enable_block_copy=inst_cfg["enable_block_copy"],
                                    attn_offload=inst_cfg["attn_offload"],
+                                   yield_to_offload=inst_cfg["yield_to_offload"],
                                    inputs_root=run_paths.inputs_root)
                     generate_graph(new_req, instance["hardware"], instance["num_npus"], node_id,
                                    instance_id, inst2npu_mapping[instance_id],
@@ -1126,7 +1147,7 @@ def main():
                 )
         # check if all requests are done for current instance#
         # NOTE: 'instance_id' could occur in duplicate, because 'npu2inst_mapping[sys]' is not one-to-one mapping
-        if (instance_id not in decode_instance or is_prefill_done) and instance_id not in done_instance and schedulers[instance_id].is_request_empty() and not router.has_pending_requests() and not router.has_deferred_sessions():
+        if (instance_id not in decode_instance or is_prefill_done) and instance_id not in done_instance and schedulers[instance_id].is_request_empty() and not router.has_pending_requests() and not router.has_deferred_sessions() and router.system_quiet():
             # For DP groups: only mark done when ALL members of the group are empty
             dg = inst_dp_group.get(instance_id)
             if dg is not None:

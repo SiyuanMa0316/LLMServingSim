@@ -69,6 +69,9 @@ class Scheduler:
         # are waiting for a running slot (max_num_seqs) and KV blocks. vLLM's
         # decode-side scheduler enforces max_num_seqs on these too.
         self.decode_waiting = []
+        # Hybrid scheduling (see Router.enable_hybrid): a request leaves this scheduler
+        # when its prefill finishes and is re-placed by the router's decode dispatcher.
+        self.hybrid = False
         self.inflight = []
         self.done = []
         self.batch_ids = -1
@@ -411,7 +414,7 @@ class Scheduler:
                 prompt_t += num_new + req.prefix_cache_hit
                 if self.enable_prefix_caching:
                     self.kv.cache_blocks(req, req.num_computed_tokens)
-                if self.pd_type == "prefill":
+                if self.pd_type == "prefill" or self.hybrid:
                     # The prefill instance ran through lm_head and the sampler, so
                     # the first output token exists: advance the reached length or
                     # the decode instance receives a request with nothing left to
@@ -422,6 +425,7 @@ class Scheduler:
                     self.logger.info("Request #%d is prefill done, sent to decode instance", req.id)
                     self.kv.free(req)
                     self._retire(req)
+                    req.handoff = self.hybrid
                     end_reqs.append(req)
                     continue
             elif num_new > 1:
@@ -515,6 +519,14 @@ class Scheduler:
         self.kv.take_traffic()          # a P/D handoff is not a recall
         self.running.append(req)
         return True
+
+    def decode_population(self):
+        """Requests in the decode phase on this instance: running past prefill, plus
+        handed-off requests still waiting for a slot."""
+        return sum(1 for r in self.running if not r.is_init) + len(self.decode_waiting)
+
+    def prefill_population(self):
+        return sum(1 for r in self.waiting if r.is_init) + sum(1 for r in self.running if r.is_init)
 
     def is_request_empty(self):
         return not self.waiting and not self.decode_waiting and not self.running and not self.inflight

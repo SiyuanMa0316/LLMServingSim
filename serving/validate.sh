@@ -145,6 +145,9 @@ SCENARIOS=(
 
     # --- decode attention offloaded to another device (priced from its own bundle) ---
     "attn_offload_dream|--cluster-config $C/single_node_single_instance_H100_INT8_dream1tb_attn_offload_qwen3_32b_tp1.json --dtype int8 --dataset $SG_Q32 --num-reqs 20"
+
+    # --- hybrid H100 + DREAM: prefill spill-over and decode-group dispatch with fixed knobs ---
+    "hybrid_h100_dream|--cluster-config $C/single_node_hybrid_h100_dream1tb_qwen3_32b_tp1.json --dtype int8 --dataset $SG_Q32 --num-reqs 60"
     "heterogeneous|--cluster-config $C/single_node_heterogeneous.json --dataset $SG_Q32 --num-reqs 10"
 
     # --- PIM offloading ---

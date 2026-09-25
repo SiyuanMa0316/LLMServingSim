@@ -1,6 +1,7 @@
 import bisect
 import json
 import random
+from collections import deque
 from .logger import get_logger
 
 
@@ -24,6 +25,8 @@ class Router:
         self._rnd = random.Random(seed) if seed is not None else random
         self.prefill_rr_counter = 0
         self.decode_rr_counter = 0
+        self.hybrid = None   # set by enable_hybrid()
+        self.decode_queue = deque()
 
         # Pending requests (loaded but not yet routed)
         self._pending_requests = []
@@ -198,8 +201,11 @@ class Router:
             if req_data['arrival_time_ns'] > current_time_ns:
                 break
 
-            instance_id = self._select_instance(self.prefill_schedulers, "prefill")
-            sched = self.prefill_schedulers[instance_id]
+            if self.hybrid is not None:
+                sched = self.hybrid["gpu"]      # arrivals always queue for the GPU; DREAM pulls overflow
+            else:
+                instance_id = self._select_instance(self.prefill_schedulers, "prefill")
+                sched = self.prefill_schedulers[instance_id]
 
             if sched.enable_prefix_caching:
                 sched.add_request([
@@ -320,6 +326,63 @@ class Router:
                 scheduler.instance_id,
                 scheduler.pd_type
             )
+
+    # -----------------------------------------------------------------------
+    # Hybrid H100 + DREAM scheduling (fixed knobs, first version)
+    # -----------------------------------------------------------------------
+
+    def enable_hybrid(self, gpu_sched, dream_sched, gpu_decode_slots, dream_decode_slots,
+                      prefill_spill_threshold):
+        """Two dispatchers over a GPU instance and a DREAM instance; all decode KV lives on DREAM.
+
+        Prefill dispatcher: arrivals queue for the GPU. When more than
+        ``prefill_spill_threshold`` requests wait there, the DREAM instance takes the shortest
+        waiting prompt for an in-place prefill, one overflow prefill at a time.
+        Decode dispatcher: a request whose prefill finished (on either device) joins the GPU-assisted
+        group (dense on the GPU, attention on DREAM) while it has fewer than ``gpu_decode_slots``
+        decode requests, else the DREAM-only group up to ``dream_decode_slots``, else waits in FCFS
+        order. Placement is sticky: the request stays until it finishes.
+        """
+        gpu_sched.hybrid = True
+        dream_sched.hybrid = True
+        self.hybrid = {"gpu": gpu_sched, "dream": dream_sched, "gpu_slots": int(gpu_decode_slots),
+                       "dream_slots": int(dream_decode_slots), "spill": int(prefill_spill_threshold)}
+
+    def rebalance_prefill(self):
+        if self.hybrid is None:
+            return
+        gpu, dream = self.hybrid["gpu"], self.hybrid["dream"]
+        while dream.prefill_population() < 1:
+            backlog = [r for r in gpu.waiting if r.is_init and r.num_computed_tokens == 0]
+            if len(backlog) <= self.hybrid["spill"]:
+                return
+            req = min(backlog, key=lambda r: (r.original_input, r.arrival, r.id))
+            gpu.waiting.remove(req)
+            req.instance_id = dream.instance_id
+            bisect.insort(dream.waiting, req, key=lambda r: (r.arrival, r.id))
+
+    def enqueue_decode(self, requests):
+        self.decode_queue.extend(requests)
+
+    def dispatch_decode(self):
+        if self.hybrid is None:
+            return
+        gpu, dream = self.hybrid["gpu"], self.hybrid["dream"]
+        while self.decode_queue:
+            if gpu.decode_population() < self.hybrid["gpu_slots"]:
+                target = gpu
+            elif dream.decode_population() < self.hybrid["dream_slots"]:
+                target = dream
+            else:
+                return
+            target.add_decode(self.decode_queue.popleft())
+
+    def system_quiet(self):
+        """True unless hybrid scheduling still has work that could reach an otherwise finished instance."""
+        if self.hybrid is None:
+            return True
+        return (not self.decode_queue) and all(
+            s.is_request_empty() and not s.inflight for s in (self.hybrid["gpu"], self.hybrid["dream"]))
 
     def transfer_prefill_request(self, requests):
         for req in requests:

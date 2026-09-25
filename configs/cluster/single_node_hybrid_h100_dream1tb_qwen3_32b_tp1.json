@@ -1,0 +1,60 @@
+{
+    "num_nodes": 1,
+    "link_bw": 64,
+    "link_latency": 2000,
+    "hybrid_policy": {
+        "gpu_instance": 0,
+        "dream_instance": 1,
+        "gpu_decode_slots": 128,
+        "dream_decode_slots": 128,
+        "prefill_spill_threshold": 16
+    },
+    "nodes": [
+        {
+            "num_instances": 2,
+            "cpu_mem": {
+                "mem_size": 512,
+                "mem_bw": 256,
+                "mem_latency": 0
+            },
+            "instances": [
+                {
+                    "model_name": "Qwen/Qwen3-32B",
+                    "hardware": "H100_INT8",
+                    "dtype": "int8",
+                    "kv_cache_dtype": "auto",
+                    "max_num_seqs": 512,
+                    "npu_mem": {
+                        "mem_size": 1024,
+                        "mem_bw": 3350,
+                        "mem_latency": 0
+                    },
+                    "num_npus": 1,
+                    "tp_size": 1,
+                    "pd_type": null,
+                    "decode_attention_offload": {
+                        "hardware": "DREAM_1TB_INT8",
+                        "link_bw": 64,
+                        "link_latency": 2000
+                    }
+                },
+                {
+                    "model_name": "Qwen/Qwen3-32B",
+                    "hardware": "DREAM_1TB_INT8",
+                    "dtype": "int8",
+                    "kv_cache_dtype": "auto",
+                    "max_num_seqs": 512,
+                    "npu_mem": {
+                        "mem_size": 1024,
+                        "mem_bw": 2048,
+                        "mem_latency": 0
+                    },
+                    "num_npus": 1,
+                    "tp_size": 1,
+                    "pd_type": null,
+                    "yield_to_offload": true
+                }
+            ]
+        }
+    ]
+}
