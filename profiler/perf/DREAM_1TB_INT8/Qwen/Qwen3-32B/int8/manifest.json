@@ -3,6 +3,269 @@
     "d_model": 5120,
     "dtype": "int8",
     "ffn_dim": 25600,
+    "fixed_layouts": {
+      "attn_decode_qk": {
+        "geomean_slowdown": 1.232232229,
+        "n_candidates": 3,
+        "n_infeasible": 0,
+        "selection_grid": [
+          16,
+          64,
+          256,
+          1024,
+          4096,
+          16384
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "MK",
+            "R": "N"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CRAS",
+            "M": "",
+            "N": "BD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 3.313531353135313
+      },
+      "attn_decode_sv": {
+        "geomean_slowdown": 1.797744053,
+        "n_candidates": 4,
+        "n_infeasible": 0,
+        "selection_grid": [
+          16,
+          64,
+          256,
+          1024,
+          4096,
+          16384
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "MK",
+            "R": "N"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "DCRAS",
+            "M": "",
+            "N": "B"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 3.0551523947750363
+      },
+      "down_proj": {
+        "geomean_slowdown": 1.342369234,
+        "n_candidates": 4,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CDAS",
+            "M": "",
+            "N": "RB"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 2.026807844501457
+      },
+      "gate_up_proj": {
+        "geomean_slowdown": 1.176084775,
+        "n_candidates": 4,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CAS",
+            "M": "",
+            "N": "RBD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.5310138714887325
+      },
+      "lm_head": {
+        "geomean_slowdown": 1.108619226,
+        "n_candidates": 3,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "AS",
+            "M": "",
+            "N": "CRBD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.390277162025588
+      },
+      "o_proj": {
+        "geomean_slowdown": 1.536090795,
+        "n_candidates": 4,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CAS",
+            "M": "",
+            "N": "RBD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 2.348986125933832
+      },
+      "qkv_proj": {
+        "geomean_slowdown": 1.372096623,
+        "n_candidates": 5,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CAS",
+            "M": "",
+            "N": "RBD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.9108480403213888
+      }
+    },
+    "layout_criterion": "min geometric-mean slowdown vs free search over the export grid; tie: worst slowdown, then strategy key",
+    "layout_policy": "fixed",
+    "layout_select_max_tokens": null,
     "model": "Qwen/Qwen3-32B",
     "n_heads": 64,
     "n_kv_heads": 8,
