@@ -263,6 +263,31 @@
         "worst_slowdown": 1.9108480403213888
       }
     },
+    "kv_relayout": {
+      "append_us_per_instance_layer": 0.66,
+      "handoff_tokens": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128,
+        256,
+        512,
+        1024,
+        2048,
+        4096,
+        8192,
+        16384,
+        32768,
+        65536
+      ],
+      "write_replication_k": 8.0,
+      "write_replication_v": 8.0,
+      "write_slots": 128
+    },
     "layout_criterion": "min geometric-mean slowdown vs free search over the export grid; tie: worst slowdown, then strategy key",
     "layout_policy": "fixed",
     "layout_select_max_tokens": null,
@@ -287,6 +312,7 @@
     "/home/siyuan/MultiPIMSim/LLMCompass/configs/x16_1tb.json",
     "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DREAM_1TB_INT8/Qwen/Qwen3-32B/int8/tp1/dense.csv",
     "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DREAM_1TB_INT8/Qwen/Qwen3-32B/int8/tp1/per_sequence.csv",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DREAM_1TB_INT8/Qwen/Qwen3-32B/int8/tp1/attention.csv"
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DREAM_1TB_INT8/Qwen/Qwen3-32B/int8/tp1/attention.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DREAM_1TB_INT8/Qwen/Qwen3-32B/int8/tp1/kv_layout.csv"
   ]
 }
