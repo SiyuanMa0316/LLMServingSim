@@ -1,0 +1,326 @@
+{
+  "knobs": {
+    "d_model": 5120,
+    "dtype": "int8",
+    "ffn_dim": 25600,
+    "fixed_layouts": {
+      "attn_decode_qk": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 2.422787429,
+        "n_candidates": 9,
+        "n_infeasible": 0,
+        "selection_grid": [
+          16,
+          64,
+          256,
+          1024,
+          4096,
+          16384
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CRAS",
+            "M": "D",
+            "N": "B"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 3.828668683812406
+      },
+      "attn_decode_sv": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.740208072,
+        "n_candidates": 9,
+        "n_infeasible": 0,
+        "selection_grid": [
+          16,
+          64,
+          256,
+          1024,
+          4096,
+          16384
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CRAS",
+            "M": "",
+            "N": "BD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 4.322742474916389
+      },
+      "down_proj": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.057366793,
+        "n_candidates": 81,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CAS",
+            "M": "",
+            "N": "RBD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.2731219558345217
+      },
+      "gate_up_proj": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.079750444,
+        "n_candidates": 81,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "AS",
+            "M": "",
+            "N": "CRBD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.1689230964173125
+      },
+      "lm_head": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.024855017,
+        "n_candidates": 81,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "AS",
+            "M": "",
+            "N": "CRBD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.057651404445216
+      },
+      "o_proj": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.340302678,
+        "n_candidates": 81,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "DAS",
+            "M": "",
+            "N": "CRB"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 2.070930114017438
+      },
+      "qkv_proj": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.278270097,
+        "n_candidates": 81,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "DAS",
+            "M": "",
+            "N": "CRB"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.8211334452827366
+      }
+    },
+    "kv_relayout": {
+      "append_us_per_instance_layer": 0.0103125,
+      "handoff_tokens": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128,
+        256,
+        512,
+        1024,
+        2048,
+        4096,
+        8192,
+        16384,
+        32768,
+        65536
+      ],
+      "write_replication_k": 1.0,
+      "write_replication_v": 1.0,
+      "write_slots": 64
+    },
+    "layout_arr_mapping": "RMNCK",
+    "layout_criterion": "min geometric-mean slowdown vs free search over the export grid; tie: worst slowdown, then strategy key",
+    "layout_policy": "fixed",
+    "layout_select_max_tokens": null,
+    "model": "Qwen/Qwen3-32B",
+    "n_heads": 64,
+    "n_kv_heads": 8,
+    "pim_compile_mode": "exhaustive",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      1
+    ],
+    "vocab_size": 151936
+  },
+  "source_paths": [
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/matmul.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/softmax.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/layernorm.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/gelu.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/GA100.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/models/qwen3.yaml",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_INT8/Qwen/Qwen3-32B/int8/meta.yaml",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/grace_pim.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_INT8/Qwen/Qwen3-32B/int8/tp1/dense.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_INT8/Qwen/Qwen3-32B/int8/tp1/per_sequence.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_INT8/Qwen/Qwen3-32B/int8/tp1/attention.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_INT8/Qwen/Qwen3-32B/int8/tp1/kv_layout.csv"
+  ]
+}
