@@ -271,6 +271,7 @@ class Scheduler:
         """
         self.kv.preempt(req)
         req.status = RequestStatus.PREEMPTED
+        req.kv_layout_done = False  # its KV is gone (or must be recalled): rewritten on the next decode step
         req.num_computed_tokens = 0
         req.num_preemptions += 1
         self.num_preemptions += 1
@@ -300,6 +301,7 @@ class Scheduler:
         decode_k_list = []
         scheduled_tokens = {}
         pd_kv_send_tokens = 0
+        kv_relayout_lens = []
 
         for req, num_new, computed_before in scheduled:
             scheduled_tokens[req.id] = num_new
@@ -314,6 +316,9 @@ class Scheduler:
                 num_decode += 1
                 kv_len += computed_before
                 decode_k_list.append(computed_before)
+                if not req.kv_layout_done:
+                    kv_relayout_lens.append(computed_before)
+                    req.kv_layout_done = True
             if req.is_init:
                 req.set_que_delay(current)
             if self.pd_type == "prefill":
@@ -335,7 +340,7 @@ class Scheduler:
         batch = Batch(self.get_batch_id(), self.model, total_len, kv_len, q_list, k_list,
                       num_prefill, num_decode, prefill_q_list, prefill_k_list, decode_k_list,
                       current, self.kv.npu_used_bytes(), 0, recall_bytes,
-                      pd_kv_send_tokens=pd_kv_send_tokens)
+                      pd_kv_send_tokens=pd_kv_send_tokens, kv_relayout_lens=kv_relayout_lens)
         batch.fired.append(sys)
         batch.requests.extend(req for req, _, _ in scheduled)
         batch.scheduled_tokens = scheduled_tokens

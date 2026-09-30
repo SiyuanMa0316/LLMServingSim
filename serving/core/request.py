@@ -46,6 +46,10 @@ class Request:
         # request must go through the decode dispatcher; cleared by the main loop.
         self.handoff = False
 
+        # The request's KV has been written into the decode device's fixed layout
+        # (charged on its first decode step; cleared when it is preempted).
+        self.kv_layout_done = False
+
         # For chunked prefill
         self.chunk_len = 0  # tokens scheduled for this request in the current step
 
@@ -120,7 +124,7 @@ class Request:
 
 # class that manages batch of astra-sim
 class Batch:
-    def __init__(self, batch_id, model, total_len, kv_len, q_list, k_list, num_prefill, num_decode, prefill_q_list, prefill_k_list, decode_k_list, batch_time, kv_size, evict=0, load=0, pd_kv_send_tokens=0):
+    def __init__(self, batch_id, model, total_len, kv_len, q_list, k_list, num_prefill, num_decode, prefill_q_list, prefill_k_list, decode_k_list, batch_time, kv_size, evict=0, load=0, pd_kv_send_tokens=0, kv_relayout_lens=None):
         self.batch_id = batch_id
         self.model = model
         self.total_len = total_len
@@ -138,6 +142,11 @@ class Batch:
         # because the decode side needs that KV even though the prefill side did
         # not compute it. 0 unless pd_type == "prefill".
         self.pd_kv_send_tokens = pd_kv_send_tokens
+        # KV lengths (tokens) of the requests taking their first decode step in
+        # this batch: each has to have its whole KV written into the decode
+        # device's fixed layout (trace_generator charges it when the bundle
+        # carries a kv_layout table).
+        self.kv_relayout_lens = list(kv_relayout_lens or [])
         # for attn prediction
         self.q_list = q_list
         self.k_list = k_list

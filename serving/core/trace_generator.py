@@ -129,6 +129,7 @@ class BatchCtx:
     lm_head_len: int    # number of sequences
     decode_lens: list   # per-PIM-channel decode lengths (None if no PIM)
     channel_split: int  # PIM channel split factor
+    kv_relayout_ns: int = 0  # one-time KV write into the device's fixed layout, for requests entering decode this step
 
 
 @dataclass
@@ -495,6 +496,12 @@ def _build_tp_tables(tp_dir):
     moe_df = _read_category_csv(os.path.join(tp_dir, "moe.csv"), None)
     if moe_df is not None:
         tables["moe"] = _build_moe_table(moe_df)
+
+    # Optional (fixed-layout DREAM bundles only): per-layer time to write one
+    # request's KV of ``tokens`` into the device's fixed decode layout.
+    kv_layout_df = _read_category_csv(os.path.join(tp_dir, "kv_layout.csv"), None)
+    if kv_layout_df is not None:
+        tables["kv_layout"] = _build_1d_table(kv_layout_df, "layer", "tokens")
     return tables
 
 
@@ -558,6 +565,16 @@ def _lookup_dense(perf_db, name, tp, tokens):
             f"Check that the architecture catalog and dense.csv agree."
         )
     return max(1, int(_lookup_1d(tbl["keys"], tbl["values"], max(int(tokens), 1))))
+
+
+def _lookup_kv_relayout_ns(perf_db, tp, tokens):
+    """Per-layer time (ns) to write ``tokens`` of one request's KV into the
+    device's fixed decode layout; 0 for a bundle without a ``kv_layout`` table
+    (GPUs and free-layout PIM bundles)."""
+    tbl = _tp_tables(perf_db, tp).get("kv_layout", {}).get("kv_relayout")
+    if tbl is None:
+        return 0
+    return int(_lookup_1d(tbl["keys"], tbl["values"], max(int(tokens), 1)))
 
 
 def _lookup_per_sequence(perf_db, name, tp, sequences):
@@ -985,9 +1002,21 @@ def _build_batch_ctx(batch, ctx):
         kv_decode_min = 0
         total_len = max(1, total_len)  # preserve for size calcs
 
+    # Requests whose first decode step this is: their whole KV is written into
+    # the KV-holding device's fixed layout (it was read out of the producing
+    # matmul already, which that matmul's M_N IO charges). The device holding the
+    # decode KV is the attention-offload device when there is one. Serialized
+    # with the iteration: it occupies the DREAM channels.
+    kv_relayout_ns = 0
+    relayout_lens = getattr(batch, 'kv_relayout_lens', None)
+    if relayout_lens:
+        kv_db = ctx.attn_offload["perf_db"] if ctx.attn_offload is not None else ctx.perf_db
+        per_layer = sum(_lookup_kv_relayout_ns(kv_db, ctx.tp_size, n) for n in relayout_lens)
+        kv_relayout_ns = per_layer * ctx.config['num_hidden_layers']
+
     return BatchCtx(batch, total_len, prefill_chunk, kv_prefill, n_decode,
                     kv_decode_mean, kv_decode_max, kv_decode_min,
-                    lm_head_len, decode_lens, channel_split)
+                    lm_head_len, decode_lens, channel_split, kv_relayout_ns)
 
 
 # ======================================================================
@@ -1047,8 +1076,12 @@ def _offload_attention_latency_ns(ctx, bctx):
 
 
 def _emit_layer(ctx, bctx, layer_name, lines, power_acc, batch_tag='NONE', layer_num=None,
-                comm_type='NONE', comm_size=0, input_loc='LOCAL', output_loc='LOCAL'):
-    """Emit a single trace layer: lookup latency, compute sizes, format, track power."""
+                comm_type='NONE', comm_size=0, input_loc='LOCAL', output_loc='LOCAL',
+                extra_latency_ns=0):
+    """Emit a single trace layer: lookup latency, compute sizes, format, track power.
+
+    ``extra_latency_ns`` is added on top of the looked-up latency (a per-iteration
+    cost carried by the layer that runs once per iteration)."""
     category = _layer_category(ctx.perf_db, layer_name)
     if category is None:
         raise KeyError(
@@ -1075,6 +1108,7 @@ def _emit_layer(ctx, bctx, layer_name, lines, power_acc, batch_tag='NONE', layer
         duty = _OFFLOAD_DUTY.get(ctx.hardware)
         if duty is not None and bctx.batch.batch_time <= duty[1]:
             latency_ns = int(latency_ns / (1.0 - duty[0]))
+    latency_ns += extra_latency_ns
 
     # Size calculation uses the same canonical layer names.
     if layer_name == 'attention':
@@ -1445,7 +1479,10 @@ def _emit_prologue(ctx, bctx, rows, batch_tag='NONE'):
     before = len(rows)
     for i, layer_name in enumerate(prologue_layers):
         input_loc = f'REMOTE:{ctx.node_id}' if i == 0 else 'LOCAL'
-        _emit_layer(ctx, bctx, layer_name, rows, None, batch_tag, input_loc=input_loc)
+        # The prologue runs once per iteration, so it carries the one-time KV
+        # relayout of requests entering decode.
+        _emit_layer(ctx, bctx, layer_name, rows, None, batch_tag, input_loc=input_loc,
+                    extra_latency_ns=bctx.kv_relayout_ns if i == 0 else 0)
     if ctx.power_model:
         for layer_name in prologue_layers:
             lat = _layer_latency_for_power(ctx, bctx, layer_name)
