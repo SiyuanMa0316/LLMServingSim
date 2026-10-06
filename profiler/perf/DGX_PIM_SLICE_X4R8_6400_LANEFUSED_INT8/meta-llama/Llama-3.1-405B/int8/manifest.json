@@ -1,0 +1,62 @@
+{
+  "knobs": {
+    "d_model": 16384,
+    "decode_attention": {
+      "bank_group": [
+        1,
+        16
+      ],
+      "model": "lane_fused",
+      "params": {
+        "bank_bus_GBps": 12.8,
+        "bank_groups": [],
+        "exp_ticks": 704,
+        "merge_bytes_per_head": 8,
+        "prob_bits": 8,
+        "score_bits": 24,
+        "t_popcount_ns": 2.5,
+        "t_row_ns": 10.0,
+        "t_tick_ns": 1.25
+      },
+      "pin_bandwidth_Bps": 102400000000.0,
+      "qk_arr_mapping": "RMKCN",
+      "qk_tile_mapping": {
+        "K": "CRBAS",
+        "M": "D",
+        "N": ""
+      },
+      "slots": 512,
+      "sv_arr_mapping": "RMNCK",
+      "sv_tile_mapping": {
+        "K": "CRBAS",
+        "M": "D",
+        "N": ""
+      }
+    },
+    "dtype": "int8",
+    "ffn_dim": 6656,
+    "model": "meta-llama/Llama-3.1-405B",
+    "n_heads": 16,
+    "n_kv_heads": 1,
+    "pim_compile_mode": "exhaustive",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      8
+    ],
+    "vocab_size": 16032
+  },
+  "source_paths": [
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/matmul.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/softmax.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/layernorm.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/gelu.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/GA100.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/models/llama.yaml",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DGX_PIM_SLICE_X4R8_6400_LANEFUSED_INT8/meta-llama/Llama-3.1-405B/int8/meta.yaml",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/ddr5_dgx_pim_slice_256g_x4_r8_6400.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DGX_PIM_SLICE_X4R8_6400_LANEFUSED_INT8/meta-llama/Llama-3.1-405B/int8/tp8/dense.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DGX_PIM_SLICE_X4R8_6400_LANEFUSED_INT8/meta-llama/Llama-3.1-405B/int8/tp8/per_sequence.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DGX_PIM_SLICE_X4R8_6400_LANEFUSED_INT8/meta-llama/Llama-3.1-405B/int8/tp8/attention.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DGX_PIM_SLICE_X4R8_6400_LANEFUSED_INT8/meta-llama/Llama-3.1-405B/int8/tp8/kv_layout.csv"
+  ]
+}
