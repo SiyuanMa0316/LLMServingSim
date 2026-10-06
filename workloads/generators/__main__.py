@@ -19,10 +19,18 @@ def main() -> int:
     from workloads.generators.sharegpt import register_args as sg_register
     sg_register(sg)
 
+    lt = sub.add_parser("length-table",
+                        help="CSV of per-request token counts -> LLMServingSim JSONL")
+    from workloads.generators.length_table import register_args as lt_register
+    lt_register(lt)
+
     args = parser.parse_args()
 
     if args.generator == "sharegpt":
         from workloads.generators.sharegpt import run
+        return run(args)
+    if args.generator == "length-table":
+        from workloads.generators.length_table import run
         return run(args)
 
     parser.error(f"Unknown generator: {args.generator}")
