@@ -130,6 +130,7 @@ class BatchCtx:
     decode_lens: list   # per-PIM-channel decode lengths (None if no PIM)
     channel_split: int  # PIM channel split factor
     kv_relayout_ns: int = 0  # one-time KV write into the device's fixed layout, for requests entering decode this step
+    offload_hide_ns: int = 0  # sub-batch interleaving: GPU work of the other sub-batch that the offloaded attention overlaps
 
 
 @dataclass
@@ -1077,6 +1078,12 @@ def _offload_attention_latency_ns(ctx, bctx):
     elif chunk_kv_bytes > 0:
         t_offload = off["link_latency"] + chunk_kv_bytes / off["link_bw"]
     off["attn_ns"] = t_attn if bctx.n_decode > 0 else 0.0
+    # Sub-batch interleaving: while the attention device works on this
+    # sub-batch, the host runs the other sub-batch's dense layers; only the
+    # remainder stalls the host. With two balanced sub-batches the layer then
+    # costs max(host dense of both, offloaded attention of both), since the
+    # attention device and the host each serve both sub-batches in turn.
+    t_offload = max(0, t_offload - bctx.offload_hide_ns)
     return int(max(t_prefill, t_offload))
 
 
@@ -1436,6 +1443,18 @@ def _layer_latency_for_power(ctx, bctx, layer_name):
     return _lookup_dense(ctx.perf_db, layer_name, ctx.tp_size, bctx.total_len)
 
 
+def _host_dense_layer_ns(ctx, bctx):
+    """Host compute of one transformer layer of ``bctx`` excluding attention
+    (pre-attn, post-attn and dense-MLP sequences)."""
+    total = 0
+    for seq in ("pre_attn", "post_attn", "mlp_dense"):
+        for layer_name in _sequence(ctx.perf_db, seq):
+            if layer_name == "attention" or not _layer_available(ctx.perf_db, ctx.tp_size, layer_name):
+                continue
+            total += _layer_latency_for_power(ctx, bctx, layer_name)
+    return int(total)
+
+
 def _emit_final_layers(ctx, bctx, rows, batch_tag='NONE'):
     """Emit the architecture's head layers (final_layernorm, lm_head,
     sampler — ordered per the yaml) and feed them into the power model.
@@ -1574,16 +1593,22 @@ def _synthesize_interleaved_trace(hardware, model, config, tp_size, pp_size, loc
                                   variant, kv_cache_dtype='auto',
                                   runtime_max_num_batched_tokens=None, runtime_max_num_seqs=None,
                                   tp_dim=None, ep_dim=None, dp_sum_total_len=0, attn_offload=None, yield_to_offload=False):
-    if attn_offload or yield_to_offload:
-        raise ValueError("decode_attention_offload / yield_to_offload are not supported with sub-batch interleaving")
+    if yield_to_offload:
+        raise ValueError("yield_to_offload is not supported with sub-batch interleaving")
     ctx = _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_total, node_id, fp,
                            placement, gate, enable_attn_offloading, power_model, pim_model, pd_type,
                            variant=variant, kv_cache_dtype=kv_cache_dtype,
                            runtime_max_num_batched_tokens=runtime_max_num_batched_tokens,
                            runtime_max_num_seqs=runtime_max_num_seqs,
-                           tp_dim=tp_dim, ep_dim=ep_dim, dp_sum_total_len=dp_sum_total_len)
+                           tp_dim=tp_dim, ep_dim=ep_dim, dp_sum_total_len=dp_sum_total_len,
+                           attn_offload=attn_offload)
     bctx1 = _build_batch_ctx(batches[0], ctx)
     bctx2 = _build_batch_ctx(batches[1], ctx)
+    if ctx.attn_offload is not None:
+        # Each sub-batch's offloaded attention overlaps one layer of the other
+        # sub-batch's host-side dense work (emitted between its pre- and post-attn).
+        bctx1.offload_hide_ns = _host_dense_layer_ns(ctx, bctx2)
+        bctx2.offload_hide_ns = _host_dense_layer_ns(ctx, bctx1)
 
     logger.info(
         "Sub-batch #%s: model=%s num_reqs=%d total_len=%d req_ids=%s",
@@ -2081,8 +2106,10 @@ def _make_sub_batch(batch):
                 decode_k_list.append(kv_before)
                 num_decode += 1
 
-        # evict/load are counted once for the original batch; attach to sub-batch 0 only.
+        # evict/load and the one-time KV relayout are counted once for the
+        # original batch; attach them to sub-batch 0 only.
         evict, load = (batch.evict, batch.load) if i == 0 else (0, 0)
+        relayout = list(getattr(batch, 'kv_relayout_lens', None) or []) if i == 0 else []
         sub = Batch(
             batch.batch_id, batch.model,
             total_len, kv_len,
@@ -2090,6 +2117,7 @@ def _make_sub_batch(batch):
             num_decode, prefill_q_list,
             prefill_k_list, decode_k_list,
             0, 0, evict, load,
+            kv_relayout_lens=relayout,
         )
         sub.requests.extend(sub_reqs)
         sub_batches.append(sub)

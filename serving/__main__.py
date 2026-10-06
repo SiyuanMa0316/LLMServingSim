@@ -230,7 +230,8 @@ def _build_instance_runtime_configs(instances, args, dtype_to_bits):
         enable_attn_offloading = instance.get("enable_attn_offloading", args.enable_attn_offloading)
         enable_sub_batch_interleaving = instance.get(
             "enable_sub_batch_interleaving", args.enable_sub_batch_interleaving)
-        if enable_sub_batch_interleaving and not enable_attn_offloading:
+        if (enable_sub_batch_interleaving and not enable_attn_offloading
+                and not instance.get("decode_attention_offload")):
             raise RuntimeError(
                 f"Instance {instance_id} enables sub-batch interleaving without attention offloading")
         if enable_sub_batch_interleaving and instance.get("pp_size", 1) > 1:
