@@ -937,9 +937,10 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
 
     offload = None
     if attn_offload:
-        if int(tp_size) != 1 or pp_size != 1 or pd_type is not None or enable_attn_offloading:
-            raise ValueError("decode_attention_offload supports only a single-NPU instance "
-                             "(tp_size=1, pp_size=1, no pd_type, no enable_attn_offloading)")
+        if pp_size != 1 or pd_type is not None or enable_attn_offloading:
+            raise ValueError("decode_attention_offload supports only pp_size=1 instances "
+                             "(any tp_size: each rank offloads its own head shard to its own "
+                             "device and link), no pd_type, no enable_attn_offloading")
         offload = dict(
             hardware=attn_offload["hardware"], attn_ns=0.0,
             perf_db=_load_perf_db(attn_offload["hardware"], model, variant, tp_needed, model_type),
@@ -1052,7 +1053,11 @@ def _offload_attention_latency_ns(ctx, bctx):
     takes the longer of the two.
     """
     off = ctx.attn_offload
-    kv_bytes_per_token = 2 * ctx.kv_head * ctx.head_dim * ctx.kv_fp
+    # Per-rank shard under TP: each rank ships its own heads over its own link to its own device.
+    tp = max(int(ctx.tp_size), 1)
+    n_head = max(ctx.n_head // tp, 1)
+    kv_head = max(ctx.kv_head // tp, 1)
+    kv_bytes_per_token = 2 * kv_head * ctx.head_dim * ctx.kv_fp
     chunk_kv_bytes = kv_bytes_per_token * bctx.prefill_chunk
     t_prefill = 0
     if bctx.prefill_chunk > 0:
@@ -1061,7 +1066,7 @@ def _offload_attention_latency_ns(ctx, bctx):
     t_offload = 0
     t_attn = 0.0
     if bctx.n_decode > 0:
-        q_bytes = ctx.n_head * ctx.head_dim * ctx.fp
+        q_bytes = n_head * ctx.head_dim * ctx.fp
         in_bytes = bctx.n_decode * (q_bytes + kv_bytes_per_token)
         out_bytes = bctx.n_decode * q_bytes
         t_attn = _lookup_attention_with_skew(

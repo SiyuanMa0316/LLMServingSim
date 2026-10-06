@@ -1,0 +1,326 @@
+{
+  "knobs": {
+    "d_model": 16384,
+    "dtype": "int8",
+    "ffn_dim": 6656,
+    "fixed_layouts": {
+      "attn_decode_qk": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 2.411954256,
+        "n_candidates": 9,
+        "n_infeasible": 0,
+        "selection_grid": [
+          16,
+          64,
+          256,
+          1024,
+          4096,
+          16384
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CRAS",
+            "M": "B",
+            "N": "D"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 4.063134180739222
+      },
+      "attn_decode_sv": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 2.61951633,
+        "n_candidates": 9,
+        "n_infeasible": 0,
+        "selection_grid": [
+          16,
+          64,
+          256,
+          1024,
+          4096,
+          16384
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CRAS",
+            "M": "B",
+            "N": "D"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 6.472559973710152
+      },
+      "down_proj": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.035794576,
+        "n_candidates": 81,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "DAS",
+            "M": "",
+            "N": "CRB"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.1230876351351433
+      },
+      "gate_up_proj": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.011128648,
+        "n_candidates": 81,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CDAS",
+            "M": "",
+            "N": "RB"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.0249480621070794
+      },
+      "lm_head": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.00939184,
+        "n_candidates": 81,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CDAS",
+            "M": "",
+            "N": "RB"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.0250683970104206
+      },
+      "o_proj": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.010374053,
+        "n_candidates": 81,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CDAS",
+            "M": "",
+            "N": "RB"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.0237830107359716
+      },
+      "qkv_proj": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.010196717,
+        "n_candidates": 81,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CDAS",
+            "M": "",
+            "N": "RB"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.023242732829065
+      }
+    },
+    "kv_relayout": {
+      "append_us_per_instance_layer": 0.030000000000000002,
+      "handoff_tokens": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128,
+        256,
+        512,
+        1024,
+        2048,
+        4096,
+        8192,
+        16384,
+        32768,
+        65536
+      ],
+      "write_replication_k": 1.0,
+      "write_replication_v": 1.0,
+      "write_slots": 8
+    },
+    "layout_arr_mapping": "RMNCK",
+    "layout_criterion": "min geometric-mean slowdown vs free search over the export grid; tie: worst slowdown, then strategy key",
+    "layout_policy": "fixed",
+    "layout_select_max_tokens": null,
+    "model": "meta-llama/Llama-3.1-405B",
+    "n_heads": 16,
+    "n_kv_heads": 1,
+    "pim_compile_mode": "exhaustive",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      8
+    ],
+    "vocab_size": 16032
+  },
+  "source_paths": [
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/matmul.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/softmax.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/layernorm.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/gelu.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/GA100.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/models/llama.yaml",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DGX_PIM_SLICE_INT8/meta-llama/Llama-3.1-405B/int8/meta.yaml",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/ddr5_dgx_pim_slice_256g.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DGX_PIM_SLICE_INT8/meta-llama/Llama-3.1-405B/int8/tp8/dense.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DGX_PIM_SLICE_INT8/meta-llama/Llama-3.1-405B/int8/tp8/per_sequence.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DGX_PIM_SLICE_INT8/meta-llama/Llama-3.1-405B/int8/tp8/attention.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/DGX_PIM_SLICE_INT8/meta-llama/Llama-3.1-405B/int8/tp8/kv_layout.csv"
+  ]
+}
