@@ -6,6 +6,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) co
 ## [Unreleased]
 
 ### Added
+- `python -m workloads.generators length-table` — converts a CSV of per-request
+  input/output token counts (Azure LLM inference traces, Vidur's Arxiv/BWB tables)
+  to flat JSONL with the rows' exact lengths, from real timestamps, a seeded Poisson
+  rate, or static arrivals. Emits no token IDs; run with `--no-enable-prefix-caching`.
+  Docs: `workloads/length-table-generator`.
 - `docs/scripts/check-rendered.mjs` — scans the built site for source syntax that
   survived into visible text (unparsed admonitions, bold, links, headings, table rows,
   doubled list markers, visible HTML comments, JSX brace leaks), plus a structural
