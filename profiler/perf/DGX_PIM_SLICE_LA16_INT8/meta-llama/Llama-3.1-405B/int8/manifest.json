@@ -6,7 +6,7 @@
     "fixed_layouts": {
       "attn_decode_qk": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.442246788,
+        "geomean_slowdown": 1.263882427,
         "n_candidates": 27,
         "n_infeasible": 0,
         "selection_grid": [
@@ -30,17 +30,17 @@
           "output_resident": false,
           "tile_mapping": {
             "K": "CRS",
-            "M": "A",
-            "N": "BD"
+            "M": "D",
+            "N": "BA"
           },
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 3.781499202551834
+        "worst_slowdown": 2.127955835391159
       },
       "attn_decode_sv": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.258063416,
+        "geomean_slowdown": 1.46528236,
         "n_candidates": 27,
         "n_infeasible": 0,
         "selection_grid": [
@@ -63,18 +63,18 @@
           "loop_order": "mkn",
           "output_resident": false,
           "tile_mapping": {
-            "K": "DCRS",
-            "M": "A",
-            "N": "B"
+            "K": "CRS",
+            "M": "D",
+            "N": "BA"
           },
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.9772528433945755
+        "worst_slowdown": 2.705992003457964
       },
       "down_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.028715925,
+        "geomean_slowdown": 1.10412851,
         "n_candidates": 243,
         "n_infeasible": 0,
         "selection_grid": [
@@ -110,11 +110,11 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.1268403395688136
+        "worst_slowdown": 1.6329752799922184
       },
       "gate_up_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.018647963,
+        "geomean_slowdown": 1.030112585,
         "n_candidates": 243,
         "n_infeasible": 0,
         "selection_grid": [
@@ -150,7 +150,7 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.1158361316143195
+        "worst_slowdown": 1.2567771752054595
       },
       "lm_head": {
         "arr_mapping_constraint": "RMNCK",
@@ -191,7 +191,7 @@
       },
       "o_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.019760182,
+        "geomean_slowdown": 1.040511095,
         "n_candidates": 243,
         "n_infeasible": 0,
         "selection_grid": [
@@ -227,11 +227,11 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.1065063305950955
+        "worst_slowdown": 1.3649576896189508
       },
       "qkv_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.013275428,
+        "geomean_slowdown": 1.03551089,
         "n_candidates": 243,
         "n_infeasible": 0,
         "selection_grid": [
@@ -267,11 +267,11 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.1048773409977874
+        "worst_slowdown": 1.3736429033242288
       }
     },
     "kv_relayout": {
-      "append_us_per_instance_layer": 0.44,
+      "append_us_per_instance_layer": 3.52,
       "handoff_tokens": [
         1,
         2,

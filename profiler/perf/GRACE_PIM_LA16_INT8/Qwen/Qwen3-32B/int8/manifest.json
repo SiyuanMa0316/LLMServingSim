@@ -6,7 +6,7 @@
     "fixed_layouts": {
       "attn_decode_qk": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.045914197,
+        "geomean_slowdown": 1.075469966,
         "n_candidates": 27,
         "n_infeasible": 0,
         "selection_grid": [
@@ -36,11 +36,11 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.309110629067245
+        "worst_slowdown": 1.5354330708661417
       },
       "attn_decode_sv": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.326853541,
+        "geomean_slowdown": 1.180644404,
         "n_candidates": 27,
         "n_infeasible": 0,
         "selection_grid": [
@@ -63,14 +63,14 @@
           "loop_order": "mkn",
           "output_resident": false,
           "tile_mapping": {
-            "K": "CRS",
+            "K": "DCRS",
             "M": "A",
-            "N": "BD"
+            "N": "B"
           },
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 2.658678005411674
+        "worst_slowdown": 1.4755434782608696
       },
       "down_proj": {
         "arr_mapping_constraint": "RMNCK",
@@ -114,7 +114,7 @@
       },
       "gate_up_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.100988186,
+        "geomean_slowdown": 1.249780191,
         "n_candidates": 243,
         "n_infeasible": 0,
         "selection_grid": [
@@ -143,18 +143,18 @@
           "loop_order": "mkn",
           "output_resident": false,
           "tile_mapping": {
-            "K": "DS",
+            "K": "S",
             "M": "A",
-            "N": "CRB"
+            "N": "CRBD"
           },
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.4514612280784387
+        "worst_slowdown": 2.203827551894106
       },
       "lm_head": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.034183459,
+        "geomean_slowdown": 1.027778325,
         "n_candidates": 243,
         "n_infeasible": 0,
         "selection_grid": [
@@ -187,11 +187,11 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.2172230127780375
+        "worst_slowdown": 1.331050618871298
       },
       "o_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.430818297,
+        "geomean_slowdown": 1.461832116,
         "n_candidates": 243,
         "n_infeasible": 0,
         "selection_grid": [
@@ -227,11 +227,11 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 2.10055140116323
+        "worst_slowdown": 2.361486297963194
       },
       "qkv_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.332318647,
+        "geomean_slowdown": 1.370155851,
         "n_candidates": 243,
         "n_infeasible": 0,
         "selection_grid": [
@@ -267,11 +267,11 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 2.0568679034390636
+        "worst_slowdown": 2.3905391061895025
       }
     },
     "kv_relayout": {
-      "append_us_per_instance_layer": 0.0103125,
+      "append_us_per_instance_layer": 0.68,
       "handoff_tokens": [
         1,
         2,
