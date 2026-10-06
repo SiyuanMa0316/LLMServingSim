@@ -1,0 +1,62 @@
+{
+  "knobs": {
+    "d_model": 5120,
+    "decode_attention": {
+      "bank_group": [
+        1,
+        2
+      ],
+      "model": "lane_fused",
+      "params": {
+        "bank_bus_GBps": 12.8,
+        "bank_groups": [],
+        "exp_ticks": 704,
+        "merge_bytes_per_head": 8,
+        "prob_bits": 8,
+        "score_bits": 24,
+        "t_popcount_ns": 2.5,
+        "t_row_ns": 10.0,
+        "t_tick_ns": 1.25
+      },
+      "pin_bandwidth_Bps": 409600000000.0,
+      "qk_arr_mapping": "RMKCN",
+      "qk_tile_mapping": {
+        "K": "CRBAS",
+        "M": "D",
+        "N": ""
+      },
+      "slots": 1024,
+      "sv_arr_mapping": "RMNCK",
+      "sv_tile_mapping": {
+        "K": "CRBAS",
+        "M": "D",
+        "N": ""
+      }
+    },
+    "dtype": "int8",
+    "ffn_dim": 25600,
+    "model": "Qwen/Qwen3-32B",
+    "n_heads": 64,
+    "n_kv_heads": 8,
+    "pim_compile_mode": "exhaustive",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      1
+    ],
+    "vocab_size": 151936
+  },
+  "source_paths": [
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/matmul.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/softmax.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/layernorm.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/gelu.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/GA100.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/models/qwen3.yaml",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/meta.yaml",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/grace_pim.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/dense.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/per_sequence.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/attention.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/kv_layout.csv"
+  ]
+}
