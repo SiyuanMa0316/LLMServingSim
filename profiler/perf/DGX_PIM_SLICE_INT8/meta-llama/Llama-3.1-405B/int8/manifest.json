@@ -191,7 +191,7 @@
       },
       "o_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.057181715,
+        "geomean_slowdown": 1.138332608,
         "n_candidates": 81,
         "n_infeasible": 0,
         "selection_grid": [
@@ -220,18 +220,18 @@
           "loop_order": "mkn",
           "output_resident": false,
           "tile_mapping": {
-            "K": "CDAS",
+            "K": "CAS",
             "M": "",
-            "N": "RB"
+            "N": "RBD"
           },
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.2655865739921068
+        "worst_slowdown": 1.3927404443331393
       },
       "qkv_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.057238719,
+        "geomean_slowdown": 1.084142955,
         "n_candidates": 81,
         "n_infeasible": 0,
         "selection_grid": [
@@ -267,7 +267,7 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.2656415810943875
+        "worst_slowdown": 1.2496073666286438
       }
     },
     "kv_relayout": {
