@@ -4,12 +4,17 @@
     "decode_attention": {
       "bank_group": [
         1,
-        2
+        1
       ],
       "model": "lane_fused",
       "params": {
         "bank_bus_GBps": 12.8,
-        "bank_groups": [],
+        "bank_groups": [
+          [
+            1,
+            1
+          ]
+        ],
         "exp_ticks": 548,
         "merge_bytes_per_head": 8,
         "prob_bits": 12,
@@ -22,15 +27,15 @@
       "pin_bandwidth_Bps": 409600000000.0,
       "qk_arr_mapping": "RMKCN",
       "qk_tile_mapping": {
-        "K": "CRBAS",
-        "M": "D",
+        "K": "CRBASD",
+        "M": "",
         "N": ""
       },
-      "slots": 1024,
+      "slots": 2048,
       "sv_arr_mapping": "RMNCK",
       "sv_tile_mapping": {
-        "K": "CRBAS",
-        "M": "D",
+        "K": "CRBASD",
+        "M": "",
         "N": ""
       }
     },
