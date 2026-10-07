@@ -947,6 +947,7 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
             perf_db=_load_perf_db(attn_offload["hardware"], model, variant, tp_needed, model_type),
             link_bw=float(attn_offload["link_bw"]),          # GB/s == bytes per ns
             link_latency=int(attn_offload["link_latency"]),  # ns, per direction
+            pin_bw=_offload_pin_bw(attn_offload["hardware"], model, variant),
         )
 
     pim_channels = 0
@@ -1042,6 +1043,29 @@ def _layer_category(perf_db, layer_name):
 _OFFLOAD_DUTY = {}
 
 
+def _offload_pin_bw(hardware, model, variant):
+    """External (pin) bandwidth, in bytes per ns, the offload bundle's decode attention already charges for its own
+    Q-in / output / new-KV IO, from ``knobs.decode_attention.pin_bandwidth_Bps`` in the bundle manifest (written by
+    LLMCompass's lane-fused exporter). None when the bundle does not declare it."""
+    path = os.path.join(_variant_root(hardware, model, variant), "manifest.json")
+    if not os.path.isfile(path):
+        return None
+    import json
+    with open(path) as f:
+        pin = ((json.load(f).get("knobs") or {}).get("decode_attention") or {}).get("pin_bandwidth_Bps")
+    return float(pin) / 1e9 if pin else None
+
+
+def _offload_transfer_ns(off, nbytes):
+    """Link time for decode bytes whose pin crossing the bundle's attention time already includes. The link and the
+    device pins are stages of one pipelined transfer, so the link only adds what it takes beyond the pins:
+    max(0, bytes/link_bw - bytes/pin_bw). Without a declared pin bandwidth the whole link time is charged."""
+    t = nbytes / off["link_bw"]
+    if off.get("pin_bw"):
+        t = max(0.0, t - nbytes / off["pin_bw"])
+    return t
+
+
 def _offload_attention_latency_ns(ctx, bctx):
     """Attention latency when decode attention runs on another device (DREAM).
 
@@ -1051,7 +1075,9 @@ def _offload_attention_latency_ns(ctx, bctx):
     the attention device as well, sharing the link with the decode traffic (charged
     ahead of it, conservatively), like the P/D handoff. The host's own prefill
     attention runs concurrently with the offloaded decode attention, so the layer
-    takes the longer of the two.
+    takes the longer of the two. Decode Q / new K/V / output bytes are charged on the
+    link only beyond the device pin time the bundle already includes (_offload_transfer_ns);
+    the prefill chunk's K/V is not in the decode attention time and is charged in full.
     """
     off = ctx.attn_offload
     # Per-rank shard under TP: each rank ships its own heads over its own link to its own device.
@@ -1073,8 +1099,8 @@ def _offload_attention_latency_ns(ctx, bctx):
         t_attn = _lookup_attention_with_skew(
             off["perf_db"], ctx.tp_size, 0, 0, bctx.n_decode,
             bctx.kv_decode_mean, bctx.kv_decode_max, bctx.kv_decode_min)
-        t_offload = (2 * off["link_latency"] + (in_bytes + chunk_kv_bytes) / off["link_bw"]
-                     + t_attn + out_bytes / off["link_bw"])
+        t_offload = (2 * off["link_latency"] + chunk_kv_bytes / off["link_bw"]
+                     + _offload_transfer_ns(off, in_bytes) + t_attn + _offload_transfer_ns(off, out_bytes))
     elif chunk_kv_bytes > 0:
         t_offload = off["link_latency"] + chunk_kv_bytes / off["link_bw"]
     off["attn_ns"] = t_attn if bctx.n_decode > 0 else 0.0
