@@ -1,13 +1,13 @@
 {
     "num_nodes": 1,
-    "link_bw": 64,
+    "link_bw": 409.6,
     "link_latency": 2000,
     "nodes": [
         {
             "num_instances": 2,
             "cpu_mem": {
                 "mem_size": 512,
-                "mem_bw": 256,
+                "mem_bw": 409.6,
                 "mem_latency": 0
             },
             "instances": [
@@ -32,7 +32,7 @@
                     "kv_cache_dtype": "auto",
                     "npu_mem": {
                         "mem_size": 512,
-                        "mem_bw": 410,
+                        "mem_bw": 409.6,
                         "mem_latency": 0
                     },
                     "num_npus": 1,

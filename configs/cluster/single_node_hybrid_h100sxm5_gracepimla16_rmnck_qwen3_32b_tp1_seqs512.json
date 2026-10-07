@@ -1,6 +1,6 @@
 {
     "num_nodes": 1,
-    "link_bw": 64,
+    "link_bw": 409.6,
     "link_latency": 2000,
     "hybrid_policy": {
         "gpu_instance": 0,
@@ -14,7 +14,7 @@
             "num_instances": 2,
             "cpu_mem": {
                 "mem_size": 512,
-                "mem_bw": 256,
+                "mem_bw": 409.6,
                 "mem_latency": 0
             },
             "instances": [
@@ -34,7 +34,7 @@
                     "pd_type": null,
                     "decode_attention_offload": {
                         "hardware": "GRACE_PIM_LA16_INT8",
-                        "link_bw": 64,
+                        "link_bw": 409.6,
                         "link_latency": 2000
                     }
                 },
@@ -46,7 +46,7 @@
                     "max_num_seqs": 512,
                     "npu_mem": {
                         "mem_size": 512,
-                        "mem_bw": 410,
+                        "mem_bw": 409.6,
                         "mem_latency": 0
                     },
                     "num_npus": 1,

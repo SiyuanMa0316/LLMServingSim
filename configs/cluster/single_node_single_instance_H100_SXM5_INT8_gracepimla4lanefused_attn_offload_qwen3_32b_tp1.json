@@ -1,13 +1,13 @@
 {
     "num_nodes": 1,
-    "link_bw": 64,
+    "link_bw": 409.6,
     "link_latency": 2000,
     "nodes": [
         {
             "num_instances": 1,
             "cpu_mem": {
                 "mem_size": 512,
-                "mem_bw": 256,
+                "mem_bw": 409.6,
                 "mem_latency": 0
             },
             "instances": [
@@ -26,7 +26,7 @@
                     "pd_type": null,
                     "decode_attention_offload": {
                         "hardware": "GRACE_PIM_LA4_LANEFUSED_INT8",
-                        "link_bw": 64,
+                        "link_bw": 409.6,
                         "link_latency": 2000
                     }
                 }

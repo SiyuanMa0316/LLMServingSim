@@ -7,7 +7,7 @@
             "num_instances": 1,
             "cpu_mem": {
                 "mem_size": 512,
-                "mem_bw": 256,
+                "mem_bw": 409.6,
                 "mem_latency": 0
             },
             "instances": [
