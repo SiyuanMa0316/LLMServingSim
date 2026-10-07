@@ -4,7 +4,7 @@
     "decode_attention": {
       "bank_group": [
         1,
-        2
+        1
       ],
       "model": "lane_fused",
       "params": {
@@ -22,15 +22,15 @@
       "pin_bandwidth_Bps": 409600000000.0,
       "qk_arr_mapping": "RMKCN",
       "qk_tile_mapping": {
-        "K": "CRBAS",
-        "M": "D",
+        "K": "CRBSD",
+        "M": "A",
         "N": ""
       },
-      "slots": 1024,
+      "slots": 2048,
       "sv_arr_mapping": "RMNCK",
       "sv_tile_mapping": {
-        "K": "CRBAS",
-        "M": "D",
+        "K": "CRBSD",
+        "M": "A",
         "N": ""
       }
     },
@@ -53,11 +53,11 @@
     "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/gelu.csv",
     "/home/siyuan/MultiPIMSim/LLMCompass/configs/GA100.json",
     "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/models/qwen3.yaml",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/meta.yaml",
-    "/home/siyuan/MultiPIMSim/LLMCompass/configs/grace_pim.json",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/dense.csv",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/per_sequence.csv",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/attention.csv",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/kv_layout.csv"
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LA4_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/meta.yaml",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/grace_pim_la4.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LA4_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/dense.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LA4_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/per_sequence.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LA4_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/attention.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LA4_LANEFUSED_INT8/Qwen/Qwen3-32B/int8/tp1/kv_layout.csv"
   ]
 }
