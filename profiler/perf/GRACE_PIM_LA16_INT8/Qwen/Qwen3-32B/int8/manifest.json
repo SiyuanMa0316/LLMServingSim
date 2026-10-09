@@ -6,7 +6,7 @@
     "fixed_layouts": {
       "attn_decode_qk": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.036668005,
+        "geomean_slowdown": 1.079693844,
         "n_candidates": 27,
         "n_infeasible": 0,
         "selection_grid": [
@@ -41,11 +41,11 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.4334975369458127
+        "worst_slowdown": 1.6018348623853211
       },
       "attn_decode_sv": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.104247033,
+        "geomean_slowdown": 1.167765623,
         "n_candidates": 27,
         "n_infeasible": 0,
         "selection_grid": [
@@ -80,11 +80,11 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.3916755602988256
+        "worst_slowdown": 1.4551991461153868
       },
       "down_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.077265348,
+        "geomean_slowdown": 1.078716202,
         "n_candidates": 243,
         "n_infeasible": 0,
         "selection_grid": [
@@ -121,131 +121,11 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 1.267439582806969
+        "worst_slowdown": 1.3907124452249267
       },
       "gate_up_proj": {
         "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.233603845,
-        "n_candidates": 243,
-        "n_infeasible": 0,
-        "selection_grid": [
-          1,
-          2,
-          4,
-          8,
-          16,
-          32,
-          64,
-          128,
-          256,
-          512,
-          1024,
-          2048
-        ],
-        "strategy": {
-          "arr_mapping": {
-            "C": "K",
-            "R": "MN"
-          },
-          "arr_multicast": false,
-          "broadcast": "CRBD",
-          "col_popcount": true,
-          "input_resident": false,
-          "lane_fused": false,
-          "loop_order": "mkn",
-          "output_resident": false,
-          "tile_mapping": {
-            "K": "S",
-            "M": "A",
-            "N": "CRBD"
-          },
-          "weight_resident": true,
-          "with_PE": true
-        },
-        "worst_slowdown": 2.0062546160240546
-      },
-      "lm_head": {
-        "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.022729353,
-        "n_candidates": 243,
-        "n_infeasible": 0,
-        "selection_grid": [
-          1,
-          2,
-          4,
-          8,
-          16,
-          32,
-          64,
-          128,
-          256
-        ],
-        "strategy": {
-          "arr_mapping": {
-            "C": "K",
-            "R": "MN"
-          },
-          "arr_multicast": false,
-          "broadcast": "CRBD",
-          "col_popcount": true,
-          "input_resident": false,
-          "lane_fused": false,
-          "loop_order": "mkn",
-          "output_resident": false,
-          "tile_mapping": {
-            "K": "S",
-            "M": "A",
-            "N": "CRBD"
-          },
-          "weight_resident": true,
-          "with_PE": true
-        },
-        "worst_slowdown": 1.2901571370099478
-      },
-      "o_proj": {
-        "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.415955679,
-        "n_candidates": 243,
-        "n_infeasible": 0,
-        "selection_grid": [
-          1,
-          2,
-          4,
-          8,
-          16,
-          32,
-          64,
-          128,
-          256,
-          512,
-          1024,
-          2048
-        ],
-        "strategy": {
-          "arr_mapping": {
-            "C": "K",
-            "R": "MN"
-          },
-          "arr_multicast": false,
-          "broadcast": "CRBD",
-          "col_popcount": true,
-          "input_resident": false,
-          "lane_fused": false,
-          "loop_order": "mkn",
-          "output_resident": false,
-          "tile_mapping": {
-            "K": "RDS",
-            "M": "A",
-            "N": "CB"
-          },
-          "weight_resident": true,
-          "with_PE": true
-        },
-        "worst_slowdown": 2.1551884787654885
-      },
-      "qkv_proj": {
-        "arr_mapping_constraint": "RMNCK",
-        "geomean_slowdown": 1.360901044,
+        "geomean_slowdown": 1.240861046,
         "n_candidates": 243,
         "n_infeasible": 0,
         "selection_grid": [
@@ -282,7 +162,127 @@
           "weight_resident": true,
           "with_PE": true
         },
-        "worst_slowdown": 2.4721105041203355
+        "worst_slowdown": 2.277991669279348
+      },
+      "lm_head": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 0.99418475,
+        "n_candidates": 243,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "lane_fused": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "S",
+            "M": "A",
+            "N": "CRBD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 1.0
+      },
+      "o_proj": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.368297218,
+        "n_candidates": 243,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "lane_fused": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "CS",
+            "M": "A",
+            "N": "RBD"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 2.7096936212958314
+      },
+      "qkv_proj": {
+        "arr_mapping_constraint": "RMNCK",
+        "geomean_slowdown": 1.360423662,
+        "n_candidates": 243,
+        "n_infeasible": 0,
+        "selection_grid": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "strategy": {
+          "arr_mapping": {
+            "C": "K",
+            "R": "MN"
+          },
+          "arr_multicast": false,
+          "broadcast": "CRBD",
+          "col_popcount": true,
+          "input_resident": false,
+          "lane_fused": false,
+          "loop_order": "mkn",
+          "output_resident": false,
+          "tile_mapping": {
+            "K": "DS",
+            "M": "A",
+            "N": "CRB"
+          },
+          "weight_resident": true,
+          "with_PE": true
+        },
+        "worst_slowdown": 2.6845622073911746
       }
     },
     "kv_relayout": {

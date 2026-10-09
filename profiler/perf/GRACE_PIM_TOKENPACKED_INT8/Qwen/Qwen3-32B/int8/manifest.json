@@ -20,7 +20,7 @@
         "prob_bits": 12,
         "prob_writeback": true,
         "qk_order": "NM",
-        "row_popcounts_per_row_fetch": 8,
+        "row_popcounts_per_row_fetch": null,
         "score_bits": 22,
         "stat_bits_per_head": 72,
         "stripe_slots": 2,
