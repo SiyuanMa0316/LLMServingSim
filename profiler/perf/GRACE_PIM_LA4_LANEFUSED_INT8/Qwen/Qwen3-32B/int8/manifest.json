@@ -9,14 +9,19 @@
       "model": "lane_fused",
       "params": {
         "bank_bus_GBps": 12.8,
-        "bank_groups": [],
+        "bank_groups": [
+          [
+            1,
+            1
+          ]
+        ],
         "exp_ticks": 548,
         "merge_bytes_per_head": 8,
         "prob_bits": 12,
         "prob_writeback": true,
         "score_bits": 22,
         "t_popcount_ns": 2.5,
-        "t_row_ns": 10.0,
+        "t_row_ns": null,
         "t_tick_ns": 1.25
       },
       "pin_bandwidth_Bps": 409600000000.0,
@@ -32,7 +37,8 @@
         "K": "CRBSD",
         "M": "A",
         "N": ""
-      }
+      },
+      "t_row_ns": 20.0
     },
     "dtype": "int8",
     "ffn_dim": 25600,

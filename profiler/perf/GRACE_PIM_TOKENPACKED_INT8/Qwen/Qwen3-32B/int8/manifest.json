@@ -3,6 +3,7 @@
     "d_model": 5120,
     "decode_attention": {
       "acc_bits": 27,
+      "column_bits": 128,
       "lanes": 1024,
       "lb_rows_used": {
         "fold": 60,
@@ -24,12 +25,13 @@
         "sv_add_ticks": 0,
         "t_beat_ns": 2.5,
         "t_popcount_ns": 2.5,
-        "t_row_ns": 10.0,
+        "t_row_ns": null,
         "t_tick_ns": 1.25
       },
       "pin_bandwidth_Bps": 409600000000.0,
       "popcount_width_bits": 128,
       "slots": 2048,
+      "t_row_ns": 20.0,
       "tokens_per_row": 8
     },
     "dtype": "int8",
