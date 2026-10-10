@@ -1,0 +1,22 @@
+{
+  "knobs": {
+    "d_model": 5120,
+    "decode_attention": {
+      "model": "ideal_free_decode_attention",
+      "pin_bandwidth_Bps": 409600000000.0
+    },
+    "derived_from": "GRACE_PIM_TOKENPACKED_INT8",
+    "dtype": "int8",
+    "ffn_dim": 25600,
+    "model": "Qwen/Qwen3-32B",
+    "n_heads": 64,
+    "n_kv_heads": 8,
+    "pim_compile_mode": "exhaustive",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      1
+    ],
+    "vocab_size": 151936
+  },
+  "source_paths": []
+}
