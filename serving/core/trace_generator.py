@@ -1773,7 +1773,7 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
                    enable_prefix_caching=False, enable_attn_offloading=False, power_model=None, pim_model=None,
                    enable_sub_batch_interleaving=False, fp=16, dtype=None, kv_cache_dtype='auto',
                    tp_dim=None, ep_dim=None, dp_sum_total_len=0, enable_block_copy=True, inputs_root=None,
-                   attn_offload=None, yield_to_offload=False):
+                   attn_offload=None, yield_to_offload=False, adaptive_sub_batch_interleaving=False):
 
     model = batch.model
     config = get_config(model)
@@ -1839,6 +1839,13 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
                     "group edge, so a pipeline stage has no single hidden state to pass on"
                 )
             rows, block_starts = _synthesize_interleaved_trace(*synth_args, batches, max_len, **synth_kwargs)
+            if adaptive_sub_batch_interleaving and power_model is None:
+                # Keep the split only when it is cheaper: a small, memory-bound batch
+                # split in two reads every weight twice and can lose more than the
+                # overlap with the offloaded attention gains.
+                whole_rows, whole_starts = _synthesize_trace(*synth_args, batch, max_len, **synth_kwargs)
+                if _rows_compute_ns(whole_rows) <= _rows_compute_ns(rows):
+                    rows, block_starts = whole_rows, whole_starts
 
     stage_boundaries = _pp_stage_boundaries(block_starts, pp_size)
 
@@ -1879,6 +1886,11 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
     # swe-bench MoE DP+EP example, for a file that was then read straight
     # back in the same process.
     return TraceData(header_line=header_line, rows=mem + rows, path=output_path)
+
+
+def _rows_compute_ns(rows):
+    """Sum of comp_time over a trace's layer rows (one NPU, so the iteration's compute)."""
+    return sum(int(r[1]) for r in rows if len(r) > 1)
 
 
 # ======================================================================

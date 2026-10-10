@@ -241,6 +241,12 @@ def _build_instance_runtime_configs(instances, args, dtype_to_bits):
                 f"mid-block at every group edge, so a pipeline stage has no single "
                 f"hidden state to pass on")
 
+        adaptive_sub_batch = instance.get(
+            "adaptive_sub_batch_interleaving", args.adaptive_sub_batch_interleaving)
+        if adaptive_sub_batch and not enable_sub_batch_interleaving:
+            raise RuntimeError(
+                f"Instance {instance_id} enables adaptive sub-batch interleaving without sub-batch interleaving")
+
         runtime_configs.append({
             "max_num_seqs": _runtime_limit(instance.get("max_num_seqs", args.max_num_seqs)),
             "max_num_batched_tokens": _runtime_limit(
@@ -262,6 +268,7 @@ def _build_instance_runtime_configs(instances, args, dtype_to_bits):
                 "enable_local_offloading", args.enable_local_offloading),
             "enable_attn_offloading": enable_attn_offloading,
             "enable_sub_batch_interleaving": enable_sub_batch_interleaving,
+            "adaptive_sub_batch_interleaving": adaptive_sub_batch,
             "enable_block_copy": instance.get("enable_block_copy", args.enable_block_copy),
             "attn_offload": _resolve_attn_offload(instance, instance_id),
             "yield_to_offload": bool(instance.get("yield_to_offload", False)),
@@ -336,6 +343,10 @@ def main():
     parser.add_argument('--enable-sub-batch-interleaving', action='store_true', default=False,
                         help='enable sub-batch interleaving to overlap XPU and PIM computation. '
                         'Requires --enable-attn-offloading')
+    parser.add_argument('--adaptive-sub-batch-interleaving', action='store_true', default=False,
+                        help='with --enable-sub-batch-interleaving, split an iteration into two sub-batches only '
+                        'when that is cheaper than running it whole (small memory-bound batches read the '
+                        'weights twice when split). Requires --enable-sub-batch-interleaving')
     parser.add_argument('--reserve-full-isl', action=argparse.BooleanOptionalAction, default=True,
                         help='admit a request only if its whole sequence fits in the KV cache, '
                         'not merely its first chunk. Mirrors vLLM\'s scheduler_reserve_full_isl '
@@ -853,6 +864,7 @@ def main():
                                        enable_block_copy=inst_cfg["enable_block_copy"],
                                        attn_offload=inst_cfg["attn_offload"],
                                        yield_to_offload=inst_cfg["yield_to_offload"],
+                                   adaptive_sub_batch_interleaving=inst_cfg["adaptive_sub_batch_interleaving"],
                                        inputs_root=run_paths.inputs_root)
                         generate_graph(batch, inst["hardware"], inst["num_npus"], nid,
                                        inst_id, inst2npu_mapping[inst_id],
@@ -943,6 +955,7 @@ def main():
                                            enable_block_copy=inst_cfg["enable_block_copy"],
                                            attn_offload=inst_cfg["attn_offload"],
                                            yield_to_offload=inst_cfg["yield_to_offload"],
+                                   adaptive_sub_batch_interleaving=inst_cfg["adaptive_sub_batch_interleaving"],
                                            inputs_root=run_paths.inputs_root)
                             generate_graph(batch, inst["hardware"], inst["num_npus"], nid,
                                            inst_id, inst2npu_mapping[inst_id],
@@ -988,6 +1001,7 @@ def main():
                                    enable_block_copy=inst_cfg["enable_block_copy"],
                                    attn_offload=inst_cfg["attn_offload"],
                                    yield_to_offload=inst_cfg["yield_to_offload"],
+                                   adaptive_sub_batch_interleaving=inst_cfg["adaptive_sub_batch_interleaving"],
                                    inputs_root=run_paths.inputs_root)
                     generate_graph(new_req, instance["hardware"], instance["num_npus"], node_id,
                                    instance_id, inst2npu_mapping[instance_id],
