@@ -219,7 +219,13 @@ def _resolve_attn_offload(instance, instance_id):
     (so its time is not scaled down by that share). Optional "sub_batch_barrier": false --
     under sub-batch interleaving the offload device runs the two sub-batches' attention
     back to back without a barrier between them (a per-slot queue), so the pair costs the
-    whole iteration's offloaded attention, split between them by decode KV tokens."""
+    whole iteration's offloaded attention, split between them by decode KV tokens.
+    Optional "kv_allocator": "paged" -- the simulator places each request's full KV pages on
+    the offload device itself (least-loaded bank of one device per KV-head instance, no
+    migration; serving/core/paged_kv.py) and prices each iteration's attention from that
+    placement (lockstep per device: the most pages on any bank x one page step, plus IO)
+    instead of the bundle's uniform-kv rows. Needs a bundle whose manifest declares
+    knobs.decode_attention.paged and gpu_open_page_tokens equal to its page size."""
     cfg = instance.get("decode_attention_offload")
     if not cfg:
         return None

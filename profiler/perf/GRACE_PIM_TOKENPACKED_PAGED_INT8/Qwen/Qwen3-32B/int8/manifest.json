@@ -1,0 +1,93 @@
+{
+  "knobs": {
+    "d_model": 5120,
+    "decode_attention": {
+      "acc_bits": 27,
+      "chunk_tokens": 128,
+      "column_bits": 128,
+      "lanes": 1024,
+      "lb_rows_used": {
+        "fold": 60,
+        "qk": 46,
+        "sv": 41
+      },
+      "model": "token_packed",
+      "out_bits": 30,
+      "paged": {
+        "banks_per_device": 16,
+        "execution": "lockstep per device",
+        "host_Bps": 3352000000000.0,
+        "kv_bytes_per_token_head": 256,
+        "n_kv_heads": 8,
+        "open_page_on_host": true,
+        "page_ns": 76505.0,
+        "page_parts_ns": {
+          "fold": 4650.0,
+          "q_load": 160.0,
+          "qk": 20480.0,
+          "readout": 1220.0,
+          "score_flush": 880.0,
+          "softmax": 4315.0,
+          "sv": 44800.0
+        },
+        "page_tokens": 256,
+        "partial_bytes": 2120.0,
+        "pin_bandwidth_Bps": 409600000000.0,
+        "q_bytes": 1024,
+        "same_device": true,
+        "slots": 2048
+      },
+      "params": {
+        "exp_ticks": 548,
+        "host_Bps": 3352000000000.0,
+        "out_planes": 16,
+        "page_open_on_host": true,
+        "page_same_die": true,
+        "page_tokens": 256,
+        "prob_bits": 12,
+        "prob_writeback": true,
+        "qk_order": "NM",
+        "row_popcounts_per_row_fetch": null,
+        "score_bits": 22,
+        "stat_bits_per_head": 72,
+        "stripe_slots": 2,
+        "sv_add_ticks": 0,
+        "t_beat_ns": 2.5,
+        "t_popcount_ns": 2.5,
+        "t_row_ns": null,
+        "t_tick_ns": 1.25
+      },
+      "pin_bandwidth_Bps": 409600000000.0,
+      "popcount_width_bits": 128,
+      "qk_order": "NM",
+      "slots": 2048,
+      "t_row_ns": 20.0,
+      "tokens_per_row": 8
+    },
+    "dtype": "int8",
+    "ffn_dim": 25600,
+    "model": "Qwen/Qwen3-32B",
+    "n_heads": 64,
+    "n_kv_heads": 8,
+    "pim_compile_mode": "exhaustive",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      1
+    ],
+    "vocab_size": 151936
+  },
+  "source_paths": [
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/matmul.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/softmax.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/layernorm.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/gelu.csv",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/GA100.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/models/qwen3.yaml",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_TOKENPACKED_PAGED_INT8/Qwen/Qwen3-32B/int8/meta.yaml",
+    "/home/siyuan/MultiPIMSim/LLMCompass/configs/grace_pim.json",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_TOKENPACKED_PAGED_INT8/Qwen/Qwen3-32B/int8/tp1/dense.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_TOKENPACKED_PAGED_INT8/Qwen/Qwen3-32B/int8/tp1/per_sequence.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_TOKENPACKED_PAGED_INT8/Qwen/Qwen3-32B/int8/tp1/attention.csv",
+    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_TOKENPACKED_PAGED_INT8/Qwen/Qwen3-32B/int8/tp1/kv_layout.csv"
+  ]
+}

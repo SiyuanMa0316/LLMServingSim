@@ -134,6 +134,7 @@ class BatchCtx:
     hbm_resident_tokens: float = -1.0  # this sub-batch's share of decode_attention_offload.gpu_resident_kv_tokens (-1: all)
     offload_whole: tuple = None  # sub_batch_barrier false: (n_decode, kv mean, max, min) of both sub-batches together
     offload_share: float = 1.0   # ... and this sub-batch's share of their decode KV tokens
+    offload_whole_ns: float = None  # ... or, with a page allocator, both sub-batches' attention time (ns)
 
 
 @dataclass
@@ -966,6 +967,9 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
             # False: under sub-batch interleaving the offload device queues both sub-batches without a barrier
             # between them, so the pair costs the whole iteration's attention (split by decode KV tokens).
             sub_batch_barrier=bool(attn_offload.get("sub_batch_barrier", True)),
+            # kv_allocator "paged": the offload device's attention is priced from the instance's own page placement
+            # (serving/core/paged_kv.py) instead of the bundle's uniform-kv rows. Set by generate_trace.
+            allocator=attn_offload.get("_paged_allocator"),
         )
         if offload["gpu_resident_mode"] not in ("serial", "overlap", "exclusive"):
             raise ValueError(f"decode_attention_offload.gpu_resident_mode must be serial, overlap or exclusive; "
@@ -1087,6 +1091,10 @@ def _offload_transfer_ns(off, nbytes):
     return t
 
 
+def _decode_request_ids(batch):
+    return [req.id for req, q in zip(batch.requests, batch.q_list) if q == 1]
+
+
 def _offload_attention_latency_ns(ctx, bctx):
     """Attention latency when decode attention runs on another device (DREAM).
 
@@ -1118,7 +1126,11 @@ def _offload_attention_latency_ns(ctx, bctx):
         q_bytes = n_head * ctx.head_dim * ctx.fp
         in_bytes = bctx.n_decode * (q_bytes + kv_bytes_per_token)
         out_bytes = bctx.n_decode * q_bytes
-        if bctx.offload_whole is not None:
+        if bctx.offload_whole_ns is not None:
+            t_attn = bctx.offload_share * bctx.offload_whole_ns
+        elif off.get("allocator") is not None:
+            t_attn = off["allocator"].cost_ns(_decode_request_ids(bctx.batch))
+        elif bctx.offload_whole is not None:
             # No barrier between the sub-batches: the offload device works through both back to back, so the pair
             # costs the whole iteration's attention; this sub-batch carries its share of it.
             t_attn = bctx.offload_share * _lookup_attention_with_skew(
@@ -1701,8 +1713,12 @@ def _synthesize_interleaved_trace(hardware, model, config, tp_size, pp_size, loc
             kvs = list(batches[0].decode_k_list) + list(batches[1].decode_k_list)
             if kvs:
                 whole = (len(kvs), sum(kvs) // len(kvs), max(kvs), min(kvs))
+                alloc = ctx.attn_offload.get("allocator")
+                whole_ns = (alloc.cost_ns(_decode_request_ids(batches[0]) + _decode_request_ids(batches[1]))
+                            if alloc is not None else None)
                 for b, sub in zip((bctx1, bctx2), batches):
                     b.offload_whole = whole
+                    b.offload_whole_ns = whole_ns
                     b.offload_share = sum(sub.decode_k_list) / sum(kvs) if sum(kvs) else len(sub.decode_k_list) / len(kvs)
 
     logger.info(
@@ -1879,6 +1895,18 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
     # reset power model logs
     if power_model is not None:
         power_model.reset_log()
+
+    if attn_offload and attn_offload.get("kv_allocator"):
+        if attn_offload["kv_allocator"] != "paged":
+            raise ValueError(f"decode_attention_offload.kv_allocator must be 'paged'; got {attn_offload['kv_allocator']!r}")
+        from .paged_kv import paged_allocator
+        alloc = paged_allocator((node_id, instance_id, attn_offload["hardware"]),
+                                os.path.join(_variant_root(attn_offload["hardware"], model, variant), "manifest.json"))
+        if int(attn_offload.get("gpu_open_page_tokens", 0)) != alloc.P:
+            raise ValueError(f"kv_allocator 'paged' keeps each request's open page on the instance: set "
+                             f"decode_attention_offload.gpu_open_page_tokens to the bundle's page size {alloc.P}")
+        alloc.sync(batch)
+        attn_offload = dict(attn_offload, _paged_allocator=alloc)
 
     # make trace
     synth_args = (hardware, model, config, tp_size, pp_size, local_ep, ep_total, pd_type, node_id, instance_id)
