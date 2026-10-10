@@ -206,7 +206,9 @@ def _resolve_attn_offload(instance, instance_id):
     another device priced from its own profile bundle, e.g.
     {"hardware": "DREAM_1TB_INT8", "link_bw": 64, "link_latency": 2000}
     (link_bw in GB/s, link_latency in ns per direction). The instance's own device
-    keeps prefill and the dense layers."""
+    keeps prefill and the dense layers. Optional "gpu_resident_kv_tokens": KV of up to
+    that many tokens stays in the instance's memory and its decode attention runs on
+    the instance's device, serially; the offload device attends only the rest."""
     cfg = instance.get("decode_attention_offload")
     if not cfg:
         return None
