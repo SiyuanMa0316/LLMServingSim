@@ -212,13 +212,23 @@ def _resolve_attn_offload(instance, instance_id):
     sub-batch interleaving the pool is split between the sub-batches by their decode
     tokens. "gpu_resident_mode": "serial" (default), "overlap" (the HBM share gets the
     offload device's overlap credit: an optimistic bound) or "exclusive" (the whole
-    decode batch on the instance's device while the iteration's KV fits, else offloaded)."""
+    decode batch on the instance's device while the iteration's KV fits, else offloaded).
+    Optional "gpu_open_page_tokens": P -- paged KV whose open (last, part-full) page of
+    each request, kv mod P tokens, stays in the instance's memory and is attended there,
+    serially like gpu_resident_kv_tokens; the offload bundle prices the full pages only
+    (so its time is not scaled down by that share). Optional "sub_batch_barrier": false --
+    under sub-batch interleaving the offload device runs the two sub-batches' attention
+    back to back without a barrier between them (a per-slot queue), so the pair costs the
+    whole iteration's offloaded attention, split between them by decode KV tokens."""
     cfg = instance.get("decode_attention_offload")
     if not cfg:
         return None
     missing = {"hardware", "link_bw", "link_latency"} - set(cfg)
     if missing:
         raise ValueError(f"Instance {instance_id} decode_attention_offload is missing {sorted(missing)}")
+    if cfg.get("gpu_open_page_tokens") and cfg.get("gpu_resident_kv_tokens"):
+        raise ValueError(f"Instance {instance_id}: decode_attention_offload takes gpu_open_page_tokens or "
+                         f"gpu_resident_kv_tokens, not both")
     if instance.get("pd_type") or instance.get("enable_attn_offloading"):
         raise ValueError(f"Instance {instance_id}: decode_attention_offload cannot be combined "
                          f"with pd_type or enable_attn_offloading")

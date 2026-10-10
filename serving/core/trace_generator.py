@@ -132,6 +132,8 @@ class BatchCtx:
     kv_relayout_ns: int = 0  # one-time KV write into the device's fixed layout, for requests entering decode this step
     offload_hide_ns: int = 0  # sub-batch interleaving: GPU work of the other sub-batch that the offloaded attention overlaps
     hbm_resident_tokens: float = -1.0  # this sub-batch's share of decode_attention_offload.gpu_resident_kv_tokens (-1: all)
+    offload_whole: tuple = None  # sub_batch_barrier false: (n_decode, kv mean, max, min) of both sub-batches together
+    offload_share: float = 1.0   # ... and this sub-batch's share of their decode KV tokens
 
 
 @dataclass
@@ -958,6 +960,12 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
             # optimistic HBM + streaming bound); "exclusive" -- the instance's device attends the whole decode batch while
             # the iteration's decode KV fits in gpu_resident, the offload device otherwise (adaptive-placement bound).
             gpu_resident_mode=attn_offload.get("gpu_resident_mode", "serial"),
+            # Optional: paged KV with each decode request's open page (kv mod P tokens) in the instance's memory,
+            # attended on the instance's device serially; the offload bundle prices the full pages only. 0 = off.
+            open_page=int(attn_offload.get("gpu_open_page_tokens", 0)),
+            # False: under sub-batch interleaving the offload device queues both sub-batches without a barrier
+            # between them, so the pair costs the whole iteration's attention (split by decode KV tokens).
+            sub_batch_barrier=bool(attn_offload.get("sub_batch_barrier", True)),
         )
         if offload["gpu_resident_mode"] not in ("serial", "overlap", "exclusive"):
             raise ValueError(f"decode_attention_offload.gpu_resident_mode must be serial, overlap or exclusive; "
@@ -1110,9 +1118,23 @@ def _offload_attention_latency_ns(ctx, bctx):
         q_bytes = n_head * ctx.head_dim * ctx.fp
         in_bytes = bctx.n_decode * (q_bytes + kv_bytes_per_token)
         out_bytes = bctx.n_decode * q_bytes
-        t_attn = _lookup_attention_with_skew(
-            off["perf_db"], ctx.tp_size, 0, 0, bctx.n_decode,
-            bctx.kv_decode_mean, bctx.kv_decode_max, bctx.kv_decode_min)
+        if bctx.offload_whole is not None:
+            # No barrier between the sub-batches: the offload device works through both back to back, so the pair
+            # costs the whole iteration's attention; this sub-batch carries its share of it.
+            t_attn = bctx.offload_share * _lookup_attention_with_skew(
+                off["perf_db"], ctx.tp_size, 0, 0, *bctx.offload_whole)
+        else:
+            t_attn = _lookup_attention_with_skew(
+                off["perf_db"], ctx.tp_size, 0, 0, bctx.n_decode,
+                bctx.kv_decode_mean, bctx.kv_decode_max, bctx.kv_decode_min)
+        if off.get("open_page"):
+            # Each request's open page (kv mod P tokens) is in the instance's memory: the instance attends that share
+            # of the decode KV, serially with its other work; the offload bundle already prices the full pages only.
+            kvs = bctx.batch.decode_k_list
+            f = sum(k % off["open_page"] for k in kvs) / max(1, sum(kvs))
+            t_gpu_decode = f * _lookup_attention_with_skew(
+                ctx.perf_db, ctx.tp_size, 0, 0, bctx.n_decode,
+                bctx.kv_decode_mean, bctx.kv_decode_max, bctx.kv_decode_min)
         if off.get("gpu_resident"):
             # f = HBM-resident share of the iteration's decode KV. Under sub-batch interleaving the pool is split between
             # the sub-batches by their decode tokens (hbm_resident_tokens), so both see f = min(1, pool / iteration tokens).
@@ -1675,6 +1697,13 @@ def _synthesize_interleaved_trace(hardware, model, config, tp_size, pp_size, loc
             toks = [b.n_decode * b.kv_decode_mean for b in (bctx1, bctx2)]
             for b, t in zip((bctx1, bctx2), toks):
                 b.hbm_resident_tokens = ctx.attn_offload["gpu_resident"] * t / sum(toks) if sum(toks) > 0 else 0.0
+        if not ctx.attn_offload["sub_batch_barrier"]:
+            kvs = list(batches[0].decode_k_list) + list(batches[1].decode_k_list)
+            if kvs:
+                whole = (len(kvs), sum(kvs) // len(kvs), max(kvs), min(kvs))
+                for b, sub in zip((bctx1, bctx2), batches):
+                    b.offload_whole = whole
+                    b.offload_share = sum(sub.decode_k_list) / sum(kvs) if sum(kvs) else len(sub.decode_k_list) / len(kvs)
 
     logger.info(
         "Sub-batch #%s: model=%s num_reqs=%d total_len=%d req_ids=%s",
