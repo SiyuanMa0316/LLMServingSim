@@ -25,9 +25,11 @@
                     "tp_size": 1,
                     "pd_type": null,
                     "decode_attention_offload": {
-                        "hardware": "GRACE_HOSTKV_HYBRID_INT8",
+                        "hardware": "GRACE_HOSTKV_STREAM_INT8",
                         "link_bw": 409.6,
-                        "link_latency": 0
+                        "link_latency": 0,
+                        "gpu_resident_kv_tokens": 339856,
+                        "gpu_resident_mode": "overlap"
                     }
                 }
             ]

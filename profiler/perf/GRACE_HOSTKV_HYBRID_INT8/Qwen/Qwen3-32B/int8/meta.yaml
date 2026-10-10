@@ -1,6 +1,0 @@
-hardware: a100-ae-v1
-source: A100_real_hardware
-pim_compile_mode: heuristic-GPU
-profiled_at: '2026-10-10T02:11:24.389655'
-skew_fit:
-  enabled: false

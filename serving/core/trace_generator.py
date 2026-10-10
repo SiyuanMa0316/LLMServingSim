@@ -131,6 +131,7 @@ class BatchCtx:
     channel_split: int  # PIM channel split factor
     kv_relayout_ns: int = 0  # one-time KV write into the device's fixed layout, for requests entering decode this step
     offload_hide_ns: int = 0  # sub-batch interleaving: GPU work of the other sub-batch that the offloaded attention overlaps
+    hbm_resident_tokens: float = -1.0  # this sub-batch's share of decode_attention_offload.gpu_resident_kv_tokens (-1: all)
 
 
 @dataclass
@@ -952,7 +953,15 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
             # the instance's device, serially with its other GPU work; only the rest goes to the offload device
             # (NEO/FastDecode-style split with HBM-resident hot KV). 0 = everything is offloaded.
             gpu_resident=int(attn_offload.get("gpu_resident_kv_tokens", 0)),
+            # How the HBM-resident share is attended: "serial" -- on the instance's device, serially with its other work
+            # (NEO-style); "overlap" -- on the instance's device but credited the same overlap as the offload device (the
+            # optimistic HBM + streaming bound); "exclusive" -- the instance's device attends the whole decode batch while
+            # the iteration's decode KV fits in gpu_resident, the offload device otherwise (adaptive-placement bound).
+            gpu_resident_mode=attn_offload.get("gpu_resident_mode", "serial"),
         )
+        if offload["gpu_resident_mode"] not in ("serial", "overlap", "exclusive"):
+            raise ValueError(f"decode_attention_offload.gpu_resident_mode must be serial, overlap or exclusive; "
+                             f"got {offload['gpu_resident_mode']!r}")
 
     pim_channels = 0
     if enable_attn_offloading and pim_model is not None:
@@ -1105,15 +1114,25 @@ def _offload_attention_latency_ns(ctx, bctx):
             off["perf_db"], ctx.tp_size, 0, 0, bctx.n_decode,
             bctx.kv_decode_mean, bctx.kv_decode_max, bctx.kv_decode_min)
         if off.get("gpu_resident"):
-            # The HBM-resident share f of the batch's KV is attended on the instance's own device; the offload device
-            # and the link carry only the rest.
-            f = min(1.0, off["gpu_resident"] / max(1.0, bctx.n_decode * bctx.kv_decode_mean))
-            t_gpu_decode = f * _lookup_attention_with_skew(
+            # f = HBM-resident share of the iteration's decode KV. Under sub-batch interleaving the pool is split between
+            # the sub-batches by their decode tokens (hbm_resident_tokens), so both see f = min(1, pool / iteration tokens).
+            pool = bctx.hbm_resident_tokens if bctx.hbm_resident_tokens >= 0 else off["gpu_resident"]
+            f = min(1.0, pool / max(1.0, bctx.n_decode * bctx.kv_decode_mean))
+            t_hbm = _lookup_attention_with_skew(
                 ctx.perf_db, ctx.tp_size, 0, 0, bctx.n_decode,
                 bctx.kv_decode_mean, bctx.kv_decode_max, bctx.kv_decode_min)
-            t_attn *= (1.0 - f)
-            in_bytes *= (1.0 - f)
-            out_bytes *= (1.0 - f)
+            mode = off["gpu_resident_mode"]
+            if mode == "exclusive":
+                if f >= 1.0:
+                    t_attn = t_hbm
+            else:
+                t_attn *= (1.0 - f)
+                in_bytes *= (1.0 - f)
+                out_bytes *= (1.0 - f)
+                if mode == "serial":
+                    t_gpu_decode = f * t_hbm
+                else:
+                    t_attn += f * t_hbm
         t_offload = (2 * off["link_latency"] + chunk_kv_bytes / off["link_bw"]
                      + _offload_transfer_ns(off, in_bytes) + t_attn + _offload_transfer_ns(off, out_bytes))
     elif chunk_kv_bytes > 0:
@@ -1651,6 +1670,11 @@ def _synthesize_interleaved_trace(hardware, model, config, tp_size, pp_size, loc
         # sub-batch's host-side dense work (emitted between its pre- and post-attn).
         bctx1.offload_hide_ns = _host_dense_layer_ns(ctx, bctx2)
         bctx2.offload_hide_ns = _host_dense_layer_ns(ctx, bctx1)
+        if ctx.attn_offload.get("gpu_resident"):
+            # One HBM pool serves both sub-batches: split it by their decode KV tokens.
+            toks = [b.n_decode * b.kv_decode_mean for b in (bctx1, bctx2)]
+            for b, t in zip((bctx1, bctx2), toks):
+                b.hbm_resident_tokens = ctx.attn_offload["gpu_resident"] * t / sum(toks) if sum(toks) > 0 else 0.0
 
     logger.info(
         "Sub-batch #%s: model=%s num_reqs=%d total_len=%d req_ids=%s",

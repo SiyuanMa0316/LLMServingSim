@@ -208,7 +208,11 @@ def _resolve_attn_offload(instance, instance_id):
     (link_bw in GB/s, link_latency in ns per direction). The instance's own device
     keeps prefill and the dense layers. Optional "gpu_resident_kv_tokens": KV of up to
     that many tokens stays in the instance's memory and its decode attention runs on
-    the instance's device, serially; the offload device attends only the rest."""
+    the instance's device, serially; the offload device attends only the rest. Under
+    sub-batch interleaving the pool is split between the sub-batches by their decode
+    tokens. "gpu_resident_mode": "serial" (default), "overlap" (the HBM share gets the
+    offload device's overlap credit: an optimistic bound) or "exclusive" (the whole
+    decode batch on the instance's device while the iteration's KV fits, else offloaded)."""
     cfg = instance.get("decode_attention_offload")
     if not cfg:
         return None
