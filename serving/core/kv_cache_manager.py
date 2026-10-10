@@ -187,6 +187,13 @@ class TieredKVCacheManager:
             gained = coarse * (start_idx + hits) - num_computed_tokens
             if gained < coarse:
                 continue
+            # At least one token is recomputed to produce logits, as for the NPU
+            # hit in get_computed_blocks (vLLM's KV connectors drop one token when
+            # the external hit covers the whole request). Without the cap a resumed
+            # request whose reached length is a coarse multiple recovers every
+            # token, the scheduler computes num_new == 0 for the head of the
+            # waiting queue and stops admitting for good.
+            gained = min(gained, req.num_tokens_reached - 1 - num_computed_tokens)
             req.storage_hit_pool = pool
             req.storage_hit_blocks = hits
             return gained
@@ -504,7 +511,7 @@ def _selftest():
         if m.allocate_slots(f, 64) is not None:
             fillers.append(f)
     _, npu_hit, low_hit = m.get_computed_blocks(r)
-    assert npu_hit == 0 and low_hit == 512, (npu_hit, low_hit)
+    assert npu_hit == 0 and low_hit == 511, (npu_hit, low_hit)   # one token recomputed
     for f in fillers:                               # ...then make room to resume
         m.free(f)
     m.take_traffic()
