@@ -1,7 +1,7 @@
 {
     "num_nodes": 1,
-    "link_bw": 16,
-    "link_latency": 20000,
+    "link_bw": 409.6,
+    "link_latency": 2000,
     "nodes": [
         {
             "num_instances": 1,
@@ -15,13 +15,18 @@
                     "model_name": "meta-llama/Llama-3.1-70B",
                     "hardware": "H100_SXM5_W4A8",
                     "npu_mem": {
-                        "mem_size": 115.417,
+                        "mem_size": 547.4166666666666,
                         "mem_bw": 3350,
                         "mem_latency": 0
                     },
                     "num_npus": 1,
                     "tp_size": 1,
-                    "pd_type": null
+                    "pd_type": null,
+                    "decode_attention_offload": {
+                        "hardware": "GRACE_PIM_TOKENPACKED_ATTN_INT8",
+                        "link_bw": 409.6,
+                        "link_latency": 2000
+                    }
                 }
             ]
         }
