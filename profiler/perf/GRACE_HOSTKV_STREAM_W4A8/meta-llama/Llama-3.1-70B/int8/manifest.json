@@ -1,0 +1,36 @@
+{
+  "knobs": {
+    "d_model": 8192,
+    "decode_attention": {
+      "model": "h100_streams_host_kv",
+      "note": "H100_SXM5_W4A8 calibrated decode attention x 3352/409.6",
+      "pin_bandwidth_Bps": 409600000000.0
+    },
+    "dense_weight_bits": 4,
+    "derived_from": "H100_SXM5_W4A8",
+    "dtype": "int8",
+    "ffn_dim": 28672,
+    "gpu_attention": {
+      "model": "measured_fused_attention",
+      "params": {
+        "bw_ref_GBps": 1792.0,
+        "bw_tgt_GBps": 3352.0,
+        "kv_bytes_ref": 2.0,
+        "kv_bytes_tgt": 1.0,
+        "tflops_ref": 500.0,
+        "tflops_tgt": 989.4
+      },
+      "reference": "RTXPRO6000 vLLM attention.csv (bf16, tp1)"
+    },
+    "model": "meta-llama/Llama-3.1-70B",
+    "n_heads": 64,
+    "n_kv_heads": 8,
+    "pim_compile_mode": "heuristic-GPU",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      1
+    ],
+    "vocab_size": 128256
+  },
+  "source_paths": []
+}
