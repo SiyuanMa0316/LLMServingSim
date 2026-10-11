@@ -1159,6 +1159,7 @@ def _offload_attention_latency_ns(ctx, bctx):
             if mode == "exclusive":
                 if f >= 1.0:
                     t_attn = t_hbm
+                    t_gpu_decode = 0.0      # with paged KV the open pages are part of the HBM-resident batch
             else:
                 t_attn *= (1.0 - f)
                 in_bytes *= (1.0 - f)

@@ -232,9 +232,10 @@ def _resolve_attn_offload(instance, instance_id):
     missing = {"hardware", "link_bw", "link_latency"} - set(cfg)
     if missing:
         raise ValueError(f"Instance {instance_id} decode_attention_offload is missing {sorted(missing)}")
-    if cfg.get("gpu_open_page_tokens") and cfg.get("gpu_resident_kv_tokens"):
+    if (cfg.get("gpu_open_page_tokens") and cfg.get("gpu_resident_kv_tokens")
+            and cfg.get("gpu_resident_mode", "serial") != "exclusive"):
         raise ValueError(f"Instance {instance_id}: decode_attention_offload takes gpu_open_page_tokens or "
-                         f"gpu_resident_kv_tokens, not both")
+                         f"gpu_resident_kv_tokens, not both (except gpu_resident_mode 'exclusive')")
     if instance.get("pd_type") or instance.get("enable_attn_offloading"):
         raise ValueError(f"Instance {instance_id}: decode_attention_offload cannot be combined "
                          f"with pd_type or enable_attn_offloading")
