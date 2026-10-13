@@ -974,6 +974,10 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
         if offload["gpu_resident_mode"] not in ("serial", "overlap", "exclusive"):
             raise ValueError(f"decode_attention_offload.gpu_resident_mode must be serial, overlap or exclusive; "
                              f"got {offload['gpu_resident_mode']!r}")
+        # Serial mode with the page allocator: HBM-first page placement with spill (paged_kv.py), per page instead of
+        # the token-fraction split below.
+        offload["hbm_spill"] = (offload["allocator"] is not None and offload["gpu_resident"] > 0
+                                and offload["gpu_resident_mode"] == "serial")
 
     pim_channels = 0
     if enable_attn_offloading and pim_model is not None:
@@ -1122,6 +1126,7 @@ def _offload_attention_latency_ns(ctx, bctx):
     t_offload = 0
     t_attn = 0.0
     t_gpu_decode = 0.0
+    n_device = 0
     if bctx.n_decode > 0:
         q_bytes = n_head * ctx.head_dim * ctx.fp
         in_bytes = bctx.n_decode * (q_bytes + kv_bytes_per_token)
@@ -1139,7 +1144,24 @@ def _offload_attention_latency_ns(ctx, bctx):
             t_attn = _lookup_attention_with_skew(
                 off["perf_db"], ctx.tp_size, 0, 0, bctx.n_decode,
                 bctx.kv_decode_mean, bctx.kv_decode_max, bctx.kv_decode_min)
-        if off.get("open_page"):
+        n_device = bctx.n_decode
+        if off["hbm_spill"]:
+            # HBM-first page placement with spill: the instance attends each request's HBM pages and open page serially
+            # with its other work (one flash-decoding partial, merged with the device's partials as the open page's
+            # alone would be, so a split request adds no merge cost); the allocator prices the device's pages only.
+            # Only requests with pages on the device ship Q / new K/V and get partials back.
+            alloc = off["allocator"]
+            ids = _decode_request_ids(bctx.batch)
+            kvs = bctx.batch.decode_k_list
+            f = (sum(alloc.hbm_tokens(rid) + k % off["open_page"] for rid, k in zip(ids, kvs))
+                 / max(1, sum(kvs)))
+            t_gpu_decode = f * _lookup_attention_with_skew(
+                ctx.perf_db, ctx.tp_size, 0, 0, bctx.n_decode,
+                bctx.kv_decode_mean, bctx.kv_decode_max, bctx.kv_decode_min)
+            n_device = sum(alloc.on_device(rid) for rid in ids)
+            in_bytes *= n_device / bctx.n_decode
+            out_bytes *= n_device / bctx.n_decode
+        elif off.get("open_page"):
             # Each request's open page (kv mod P tokens) is in the instance's memory: the instance attends that share
             # of the decode KV, serially with its other work; the offload bundle already prices the full pages only.
             kvs = bctx.batch.decode_k_list
@@ -1147,7 +1169,7 @@ def _offload_attention_latency_ns(ctx, bctx):
             t_gpu_decode = f * _lookup_attention_with_skew(
                 ctx.perf_db, ctx.tp_size, 0, 0, bctx.n_decode,
                 bctx.kv_decode_mean, bctx.kv_decode_max, bctx.kv_decode_min)
-        if off.get("gpu_resident"):
+        if off.get("gpu_resident") and not off["hbm_spill"]:
             # f = HBM-resident share of the iteration's decode KV. Under sub-batch interleaving the pool is split between
             # the sub-batches by their decode tokens (hbm_resident_tokens), so both see f = min(1, pool / iteration tokens).
             pool = bctx.hbm_resident_tokens if bctx.hbm_resident_tokens >= 0 else off["gpu_resident"]
@@ -1168,11 +1190,17 @@ def _offload_attention_latency_ns(ctx, bctx):
                     t_gpu_decode = f * t_hbm
                 else:
                     t_attn += f * t_hbm
-        t_offload = (2 * off["link_latency"] + chunk_kv_bytes / off["link_bw"]
-                     + _offload_transfer_ns(off, in_bytes) + t_attn + _offload_transfer_ns(off, out_bytes))
+        if n_device:
+            t_offload = (2 * off["link_latency"] + chunk_kv_bytes / off["link_bw"]
+                         + _offload_transfer_ns(off, in_bytes) + t_attn + _offload_transfer_ns(off, out_bytes))
+        elif chunk_kv_bytes > 0:            # HBM-first: no decode request has a page on the device
+            t_offload = off["link_latency"] + chunk_kv_bytes / off["link_bw"]
     elif chunk_kv_bytes > 0:
         t_offload = off["link_latency"] + chunk_kv_bytes / off["link_bw"]
     off["attn_ns"] = t_attn if bctx.n_decode > 0 else 0.0
+    # For per-iteration observers: the instance's prefill and decode attention, the offload path before the overlap
+    # credit, the credit, and the decode requests with KV on the offload device.
+    off["parts"] = (t_prefill, t_gpu_decode, t_offload, bctx.offload_hide_ns, n_device)
     # Sub-batch interleaving: while the attention device works on this
     # sub-batch, the host runs the other sub-batch's dense layers; only the
     # remainder stalls the host. With two balanced sub-batches the layer then
@@ -1717,10 +1745,16 @@ def _synthesize_interleaved_trace(hardware, model, config, tp_size, pp_size, loc
                 alloc = ctx.attn_offload.get("allocator")
                 whole_ns = (alloc.cost_ns(_decode_request_ids(batches[0]) + _decode_request_ids(batches[1]))
                             if alloc is not None else None)
-                for b, sub in zip((bctx1, bctx2), batches):
+                # HBM-first: split the device's time by the sub-batches' tokens on the device, not their whole KV.
+                dev = ([sum(alloc.device_tokens(rid) for rid in _decode_request_ids(sub)) for sub in batches]
+                       if ctx.attn_offload["hbm_spill"] else [0, 0])
+                for b, sub, d in zip((bctx1, bctx2), batches, dev):
                     b.offload_whole = whole
                     b.offload_whole_ns = whole_ns
-                    b.offload_share = sum(sub.decode_k_list) / sum(kvs) if sum(kvs) else len(sub.decode_k_list) / len(kvs)
+                    if sum(dev):
+                        b.offload_share = d / sum(dev)
+                    else:
+                        b.offload_share = sum(sub.decode_k_list) / sum(kvs) if sum(kvs) else len(sub.decode_k_list) / len(kvs)
 
     logger.info(
         "Sub-batch #%s: model=%s num_reqs=%d total_len=%d req_ids=%s",
@@ -1906,6 +1940,8 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
         if int(attn_offload.get("gpu_open_page_tokens", 0)) != alloc.P:
             raise ValueError(f"kv_allocator 'paged' keeps each request's open page on the instance: set "
                              f"decode_attention_offload.gpu_open_page_tokens to the bundle's page size {alloc.P}")
+        if attn_offload.get("gpu_resident_kv_tokens") and attn_offload.get("gpu_resident_mode", "serial") == "serial":
+            alloc.set_hbm_pool(attn_offload["gpu_resident_kv_tokens"], attn_offload["_kv_block_tokens"])
         alloc.sync(batch)
         attn_offload = dict(attn_offload, _paged_allocator=alloc)
 

@@ -19,6 +19,13 @@ stored tokens-on-lanes, ``pages_per_rowblock`` pages of one bank share a 1024-la
 block after the page steps. A page takes a free quarter of the fullest non-full row block of its bank (else an empty
 or new one), the bank is the one whose page + row-block time grows least, and a device costs its busiest bank's pages x
 page step + its busiest bank's attended row blocks x row-block step (a block with any attended page runs whole).
+
+HBM-first page placement with spill (``gpu_resident_kv_tokens`` with ``gpu_resident_mode`` "serial", ``set_hbm_pool``):
+the instance's memory holds up to that many decode KV tokens. Every decode request's open page lives there, counted at
+the KV manager's block granularity; each full page goes there too while it fits (requests in batch order), and to the
+device once it does not. No migration: a page stays where it was placed until its request leaves the running set, and
+the pages freed then are refilled by later full pages. A request can be split between the two; the instance attends
+its HBM pages with its open page, and only the device's pages count in ``cost_ns``.
 """
 import json
 import os
@@ -61,6 +68,28 @@ class PagedKVAllocator:
         self.inst = {}                         # (request id, kv head) -> (device, [bank of each page])
         self.reqs = {}                         # request id -> Request, while it holds pages
         self.pages = 0
+        self.hbm_pool = 0                      # decode KV tokens the instance's memory holds (0: every full page here)
+        self.block = 1                         # KV-manager block (tokens): open pages count against the pool in blocks
+        self.hbm = {}                          # request id -> its full pages in the instance's memory
+        self.hbm_pages = 0
+        self.hbm_peak = 0                      # most pool tokens in use (full + open pages) after any sync
+
+    def set_hbm_pool(self, tokens, block):
+        """HBM-first page placement with spill (module docstring). Call before the first ``sync``."""
+        self.hbm_pool, self.block = int(tokens), max(1, int(block))
+
+    def hbm_tokens(self, rid):
+        """Full-page tokens of request ``rid`` in the instance's memory."""
+        return self.hbm.get(rid, 0) * self.P
+
+    def on_device(self, rid):
+        """Whether request ``rid`` has any full page on the device."""
+        return (rid, 0) in self.inst
+
+    def device_tokens(self, rid):
+        """Full-page tokens of request ``rid`` on the device."""
+        ent = self.inst.get((rid, 0))
+        return len(ent[1]) * self.P if ent else 0
 
     def _free(self, rid):
         for h in range(self.kv_heads):
@@ -75,6 +104,7 @@ class PagedKVAllocator:
                     self.active[s] -= self.blocks[s][b] == 0
             self.dev_load[d] -= len(banks)
             self.pages -= len(banks)
+        self.hbm_pages -= self.hbm.pop(rid, 0)
         self.reqs.pop(rid, None)
 
     def sync(self, batch):
@@ -82,6 +112,11 @@ class PagedKVAllocator:
         requests have reached. Idempotent for a given batch."""
         for rid in [rid for rid, req in self.reqs.items() if req.status != RequestStatus.RUNNING]:
             self._free(rid)
+        free = None
+        if self.hbm_pool:
+            open_tokens = sum(-(-(k % self.P) // self.block) * self.block
+                              for q, k in zip(batch.q_list, batch.k_list) if q == 1)
+            free = self.hbm_pool - self.hbm_pages * self.P - open_tokens
         for req, q, k in zip(batch.requests, batch.q_list, batch.k_list):
             if q != 1:
                 continue
@@ -89,6 +124,16 @@ class PagedKVAllocator:
             if n == 0:
                 continue
             self.reqs[req.id] = req
+            if free is not None:
+                in_hbm = self.hbm.get(req.id, 0)
+                to_hbm = max(0, min(n - in_hbm - self.device_tokens(req.id) // self.P, free // self.P))
+                if to_hbm:
+                    self.hbm[req.id] = in_hbm = in_hbm + to_hbm
+                    self.hbm_pages += to_hbm
+                    free -= to_hbm * self.P
+                n -= in_hbm                    # the rest are (or go) on the device
+                if n == 0:
+                    continue
             for h in range(self.kv_heads):
                 ent = self.inst.get((req.id, h))
                 if ent is None:
@@ -110,6 +155,8 @@ class PagedKVAllocator:
                     self.dev_load[d] += 1
                     self.pages += 1
                     banks.append((s, b))
+        if free is not None:
+            self.hbm_peak = max(self.hbm_peak, self.hbm_pool - free)
 
     def _block_for(self, s):
         """Row block of bank s for a new page: the fullest one with a free quarter, else an empty one, else a new one."""
@@ -137,7 +184,9 @@ class PagedKVAllocator:
                 if ent and ent[1]:
                     pages += len(ent[1])
                     inst += 1
-        new_kv = len(ids) * self.kv_heads * self.kv_bytes_token_head
+        # New tokens' K/V reach the device as page writes; with an HBM pool only a request with pages there spills more.
+        writers = len(ids) if not self.hbm_pool else sum(self.on_device(rid) for rid in ids)
+        new_kv = writers * self.kv_heads * self.kv_bytes_token_head
         pins = (pages * self.partial_bytes + inst * self.q_bytes + new_kv) / self.pin_Bpns
         host = pages * self.partial_bytes / self.host_Bpns
         if self.ppb:
@@ -181,4 +230,6 @@ class PagedKVAllocator:
         out = {"pages": self.pages, "busiest_bank": max(self.load) if self.pages else 0, "mean_bank": mean}
         if self.ppb:
             out.update(busiest_rowblocks=max(self.active), rowblocks=sum(self.active))
+        if self.hbm_pool:
+            out.update(hbm_pages=self.hbm_pages, hbm_peak_tokens=self.hbm_peak)
         return out

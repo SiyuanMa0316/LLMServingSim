@@ -213,6 +213,8 @@ def _resolve_attn_offload(instance, instance_id):
     tokens. "gpu_resident_mode": "serial" (default), "overlap" (the HBM share gets the
     offload device's overlap credit: an optimistic bound) or "exclusive" (the whole
     decode batch on the instance's device while the iteration's KV fits, else offloaded).
+    With "kv_allocator": "paged", "serial" is per page instead: HBM-first page placement
+    with spill, no migration (serving/core/paged_kv.py).
     Optional "gpu_open_page_tokens": P -- paged KV whose open (last, part-full) page of
     each request, kv mod P tokens, stays in the instance's memory and is attended there,
     serially like gpu_resident_kv_tokens; the offload bundle prices the full pages only
@@ -232,10 +234,12 @@ def _resolve_attn_offload(instance, instance_id):
     missing = {"hardware", "link_bw", "link_latency"} - set(cfg)
     if missing:
         raise ValueError(f"Instance {instance_id} decode_attention_offload is missing {sorted(missing)}")
-    if (cfg.get("gpu_open_page_tokens") and cfg.get("gpu_resident_kv_tokens")
-            and cfg.get("gpu_resident_mode", "serial") != "exclusive"):
+    mode = cfg.get("gpu_resident_mode", "serial")
+    if (cfg.get("gpu_open_page_tokens") and cfg.get("gpu_resident_kv_tokens") and mode != "exclusive"
+            and not (mode == "serial" and cfg.get("kv_allocator") == "paged")):
         raise ValueError(f"Instance {instance_id}: decode_attention_offload takes gpu_open_page_tokens or "
-                         f"gpu_resident_kv_tokens, not both (except gpu_resident_mode 'exclusive')")
+                         f"gpu_resident_kv_tokens, not both (except gpu_resident_mode 'exclusive', or 'serial' "
+                         f"with kv_allocator 'paged')")
     if instance.get("pd_type") or instance.get("enable_attn_offloading"):
         raise ValueError(f"Instance {instance_id}: decode_attention_offload cannot be combined "
                          f"with pd_type or enable_attn_offloading")
@@ -270,13 +274,17 @@ def _build_instance_runtime_configs(instances, args, dtype_to_bits):
             raise RuntimeError(
                 f"Instance {instance_id} enables adaptive sub-batch interleaving without sub-batch interleaving")
 
+        block_size = instance.get("block_size", args.block_size)
+        attn_offload = _resolve_attn_offload(instance, instance_id)
+        if attn_offload is not None:
+            attn_offload["_kv_block_tokens"] = block_size   # an HBM-first pool counts open pages in KV blocks
         runtime_configs.append({
             "max_num_seqs": _runtime_limit(instance.get("max_num_seqs", args.max_num_seqs)),
             "max_num_batched_tokens": _runtime_limit(
                 instance.get("max_num_batched_tokens", args.max_num_batched_tokens)),
             "long_prefill_token_threshold": instance.get(
                 "long_prefill_token_threshold", args.long_prefill_token_threshold),
-            "block_size": instance.get("block_size", args.block_size),
+            "block_size": block_size,
             "dtype": dtype,
             "fp": dtype_to_bits[dtype],
             "kv_cache_dtype": kv_cache_dtype,
@@ -293,7 +301,7 @@ def _build_instance_runtime_configs(instances, args, dtype_to_bits):
             "enable_sub_batch_interleaving": enable_sub_batch_interleaving,
             "adaptive_sub_batch_interleaving": adaptive_sub_batch,
             "enable_block_copy": instance.get("enable_block_copy", args.enable_block_copy),
-            "attn_offload": _resolve_attn_offload(instance, instance_id),
+            "attn_offload": attn_offload,
             "yield_to_offload": bool(instance.get("yield_to_offload", False)),
         })
     return runtime_configs
