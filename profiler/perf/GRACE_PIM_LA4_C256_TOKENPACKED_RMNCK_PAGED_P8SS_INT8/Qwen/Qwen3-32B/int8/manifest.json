@@ -86,18 +86,5 @@
     "derived_from": "GRACE_PIM_LA4_TOKENPACKED_RMNCK_PAGED_P8SS_INT8",
     "derived_note": "paged record re-priced for a 256-bit column (t_row 10 ns) and 16 popcount trees per array (MultiPIMSim experiments/pim-duet-close-ideal-gap/make_arch_bundle.py); other tables copied from the source bundle"
   },
-  "source_paths": [
-    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/matmul.csv",
-    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/softmax.csv",
-    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/layernorm.csv",
-    "/home/siyuan/MultiPIMSim/LLMCompass/measured_hardware/a100/gelu.csv",
-    "/home/siyuan/MultiPIMSim/LLMCompass/configs/GA100.json",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/models/qwen3.yaml",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LA4_TOKENPACKED_RMNCK_PAGED_P8SS_INT8/Qwen/Qwen3-32B/int8/meta.yaml",
-    "/home/siyuan/MultiPIMSim/LLMCompass/configs/grace_pim_la4.json",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LA4_TOKENPACKED_RMNCK_PAGED_P8SS_INT8/Qwen/Qwen3-32B/int8/tp1/dense.csv",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LA4_TOKENPACKED_RMNCK_PAGED_P8SS_INT8/Qwen/Qwen3-32B/int8/tp1/per_sequence.csv",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LA4_TOKENPACKED_RMNCK_PAGED_P8SS_INT8/Qwen/Qwen3-32B/int8/tp1/attention.csv",
-    "/home/siyuan/MultiPIMSim/LLMServingSim/profiler/perf/GRACE_PIM_LA4_TOKENPACKED_RMNCK_PAGED_P8SS_INT8/Qwen/Qwen3-32B/int8/tp1/kv_layout.csv"
-  ]
+  "source_paths": []
 }
