@@ -211,8 +211,10 @@ def _resolve_attn_offload(instance, instance_id):
     the instance's device, serially; the offload device attends only the rest. Under
     sub-batch interleaving the pool is split between the sub-batches by their decode
     tokens. "gpu_resident_mode": "serial" (default), "overlap" (the HBM share gets the
-    offload device's overlap credit: an optimistic bound) or "exclusive" (the whole
-    decode batch on the instance's device while the iteration's KV fits, else offloaded).
+    offload device's overlap credit: an optimistic bound), "exclusive" (the whole
+    decode batch on the instance's device while the iteration's KV fits, else offloaded)
+    or "balanced" (opt-in what-if: per sub-batch, the share of the KV attended from the
+    instance's memory, serially, is chosen to minimize the layer; free placement).
     With "kv_allocator": "paged", "serial" is per page instead: HBM-first page placement
     with spill, no migration (serving/core/paged_kv.py).
     Optional "gpu_open_page_tokens": P -- paged KV whose open (last, part-full) page of
@@ -235,7 +237,7 @@ def _resolve_attn_offload(instance, instance_id):
     if missing:
         raise ValueError(f"Instance {instance_id} decode_attention_offload is missing {sorted(missing)}")
     mode = cfg.get("gpu_resident_mode", "serial")
-    if (cfg.get("gpu_open_page_tokens") and cfg.get("gpu_resident_kv_tokens") and mode != "exclusive"
+    if (cfg.get("gpu_open_page_tokens") and cfg.get("gpu_resident_kv_tokens") and mode not in ("exclusive", "balanced")
             and not (mode == "serial" and cfg.get("kv_allocator") == "paged")):
         raise ValueError(f"Instance {instance_id}: decode_attention_offload takes gpu_open_page_tokens or "
                          f"gpu_resident_kv_tokens, not both (except gpu_resident_mode 'exclusive', or 'serial' "

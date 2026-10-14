@@ -961,6 +961,7 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
             # optimistic HBM + streaming bound); "exclusive" -- the instance's device attends the whole decode batch while
             # the iteration's decode KV fits in gpu_resident, the offload device otherwise (adaptive-placement bound).
             gpu_resident_mode=attn_offload.get("gpu_resident_mode", "serial"),
+            split_steps=int(attn_offload.get("gpu_resident_split_steps", 20)),     # "balanced" mode's grid
             # Optional: paged KV with each decode request's open page (kv mod P tokens) in the instance's memory,
             # attended on the instance's device serially; the offload bundle prices the full pages only. 0 = off.
             open_page=int(attn_offload.get("gpu_open_page_tokens", 0)),
@@ -971,8 +972,8 @@ def _build_trace_ctx(hardware, model, config, tp_size, pp_size, local_ep, ep_tot
             # (serving/core/paged_kv.py) instead of the bundle's uniform-kv rows. Set by generate_trace.
             allocator=attn_offload.get("_paged_allocator"),
         )
-        if offload["gpu_resident_mode"] not in ("serial", "overlap", "exclusive"):
-            raise ValueError(f"decode_attention_offload.gpu_resident_mode must be serial, overlap or exclusive; "
+        if offload["gpu_resident_mode"] not in ("serial", "overlap", "exclusive", "balanced"):
+            raise ValueError(f"decode_attention_offload.gpu_resident_mode must be serial, overlap, exclusive or balanced; "
                              f"got {offload['gpu_resident_mode']!r}")
         # Serial mode with the page allocator: HBM-first page placement with spill (paged_kv.py), per page instead of
         # the token-fraction split below.
@@ -1182,6 +1183,30 @@ def _offload_attention_latency_ns(ctx, bctx):
                 if f >= 1.0:
                     t_attn = t_hbm
                     t_gpu_decode = 0.0      # with paged KV the open pages are part of the HBM-resident batch
+            elif mode == "balanced":
+                # Opt-in what-if (upper bound, free placement like exclusive): every full page is on the offload device
+                # and the instance's memory holds a copy of any share x of them (x * decode KV <= the pool share). The
+                # instance attends its open pages and that share serially with its other work, the offload device the
+                # rest in parallel; x is chosen per sub-batch on a grid of gpu_resident_split_steps (default 20) to
+                # minimize this layer's latency (x = 0: all on the device; x = 1, when the batch fits: all on HBM).
+                steps = max(1, int(off.get("split_steps", 20)))
+                best = None
+                for i in range(steps + 1):
+                    x = f * i / steps
+                    if x >= 1.0:
+                        gd, ta, nd, ib, ob = t_hbm, 0.0, 0, 0.0, 0.0
+                    else:
+                        gd = t_gpu_decode + x * max(0.0, t_hbm - t_gpu_decode)
+                        ta, nd, ib, ob = (1.0 - x) * t_attn, n_device, (1.0 - x) * in_bytes, (1.0 - x) * out_bytes
+                    if nd:
+                        to = (2 * off["link_latency"] + chunk_kv_bytes / off["link_bw"]
+                              + _offload_transfer_ns(off, ib) + ta + _offload_transfer_ns(off, ob))
+                    else:
+                        to = off["link_latency"] + chunk_kv_bytes / off["link_bw"] if chunk_kv_bytes > 0 else 0.0
+                    lat = max(t_prefill + gd, max(0.0, to - bctx.offload_hide_ns))
+                    if best is None or lat < best[0]:
+                        best = (lat, gd, ta, nd, ib, ob)
+                _, t_gpu_decode, t_attn, n_device, in_bytes, out_bytes = best
             else:
                 t_attn *= (1.0 - f)
                 in_bytes *= (1.0 - f)
@@ -1936,7 +1961,10 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
             raise ValueError(f"decode_attention_offload.kv_allocator must be 'paged'; got {attn_offload['kv_allocator']!r}")
         from .paged_kv import paged_allocator
         alloc = paged_allocator((node_id, instance_id, attn_offload["hardware"]),
-                                os.path.join(_variant_root(attn_offload["hardware"], model, variant), "manifest.json"))
+                                os.path.join(_variant_root(attn_offload["hardware"], model, variant), "manifest.json"),
+                                {k: attn_offload[k] for k in ("rowblock_merge", "rowblock_affinity", "page_spread",
+                                                              "rowblock_affinity_slack_pages", "rowblock_merge_min_pages")
+                                 if k in attn_offload})
         if int(attn_offload.get("gpu_open_page_tokens", 0)) != alloc.P:
             raise ValueError(f"kv_allocator 'paged' keeps each request's open page on the instance: set "
                              f"decode_attention_offload.gpu_open_page_tokens to the bundle's page size {alloc.P}")

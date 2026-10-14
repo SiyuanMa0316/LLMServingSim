@@ -26,6 +26,27 @@ the KV manager's block granularity; each full page goes there too while it fits 
 device once it does not. No migration: a page stays where it was placed until its request leaves the running set, and
 the pages freed then are refilled by later full pages. A request can be split between the two; the instance attends
 its HBM pages with its open page, and only the device's pages count in ``cost_ns``.
+
+Opt-in what-ifs (decode_attention_offload keys, all off by default; MultiPIMSim experiments/pim-duet-close-ideal-gap):
+- ``rowblock_merge``: an instance's pages in one V row block share one softmax max (pass 1 runs over all of them before
+  pass 2) and leave as one partial, the tree-output adders summing that instance's slices of the block. Partials are
+  counted per (instance, row block) instead of per page; the page step and row-block step are unchanged.
+- ``rowblock_affinity``: true -- a new page goes into its instance's own last row block while it has a free quarter, else
+  into an empty row block of the bank whose page + row-block time is least; instances never share a row block. "soft" --
+  the page goes into its instance's last row block only if that bank's page + row-block time with it is within
+  ``rowblock_affinity_slack_pages`` (default 1) page steps of the default placement's choice, which it takes otherwise
+  (instances may then share a row block; each instance's pages in one block still leave as one partial). "free" -- the
+  page goes into its instance's last row block whenever that bank's page + row-block time with it stays within the
+  busiest bank's time (of its device; of all devices with page_spread "global"), i.e. whenever merging does not lengthen
+  the lockstep layer; otherwise the default placement. With page_spread "global", a page that cannot join its own row
+  block first tries the devices already holding the instance (fewer Q copies) under the same test. "auto" -- merge only
+  when the device side is loaded enough for the pins to matter: while the allocator holds at least
+  ``rowblock_merge_min_pages`` pages (default: the count whose partials take four page steps on the pins), a page joins
+  its instance's last row block whenever that block has a free quarter, else opens an empty row block on the best bank
+  (instances do not share a block, so later pages can join); below it, the default placement (spread for latency).
+- ``page_spread`` "global" (default "device"): a new page (with affinity: a new row block) goes to the device with the
+  least page + row-block time instead of the instance's own device; Q crosses the pins once per (instance, device)
+  holding its pages.
 """
 import json
 import os
@@ -35,19 +56,20 @@ from .request import RequestStatus
 _ALLOCATORS = {}
 
 
-def paged_allocator(key, manifest_path):
-    """One allocator per (node, instance, hardware); its placement persists across iterations."""
+def paged_allocator(key, manifest_path, opts=None):
+    """One allocator per (node, instance, hardware); its placement persists across iterations. ``opts``: the opt-in
+    placement keys of the module docstring."""
     if key not in _ALLOCATORS:
         with open(manifest_path) as f:
             knobs = (json.load(f).get("knobs") or {}).get("decode_attention") or {}
         if not knobs.get("paged"):
             raise ValueError(f"kv_allocator 'paged' needs knobs.decode_attention.paged in {manifest_path}")
-        _ALLOCATORS[key] = PagedKVAllocator(knobs["paged"])
+        _ALLOCATORS[key] = PagedKVAllocator(knobs["paged"], opts)
     return _ALLOCATORS[key]
 
 
 class PagedKVAllocator:
-    def __init__(self, rec):
+    def __init__(self, rec, opts=None):
         self.P = int(rec["page_tokens"])
         self.page_ns = float(rec["page_ns"])
         self.partial_bytes = float(rec["partial_bytes"])
@@ -73,9 +95,28 @@ class PagedKVAllocator:
         self.hbm = {}                          # request id -> its full pages in the instance's memory
         self.hbm_pages = 0
         self.hbm_peak = 0                      # most pool tokens in use (full + open pages) after any sync
+        opts = opts or {}
+        self.merge = bool(opts.get("rowblock_merge", False))
+        self.affinity = opts.get("rowblock_affinity", False)
+        if self.affinity not in (False, True, "soft", "free", "auto"):
+            raise ValueError(f"rowblock_affinity must be true, false, 'soft', 'free' or 'auto', got {self.affinity!r}")
+        self.slack_ns = float(opts.get("rowblock_affinity_slack_pages", 1)) * self.page_ns
+        partial_ns = self.partial_bytes / self.pin_Bpns
+        self.merge_min_pages = int(opts.get("rowblock_merge_min_pages", round(4 * self.page_ns / partial_ns)))
+        self.spread = opts.get("page_spread", "device")
+        if self.spread not in ("device", "global"):
+            raise ValueError(f"page_spread must be 'device' or 'global', got {self.spread!r}")
+        if (self.merge or self.affinity) and not self.ppb:
+            raise ValueError("rowblock_merge / rowblock_affinity need a bundle with V row blocks (pages_per_rowblock)")
+        self.opt_place = self.affinity or self.spread == "global"
+        self.track = self.merge or self.spread == "global"
+        self.meta = {}                         # (request id, kv head) -> (its row blocks {(bank, block)}, its devices)
+        self.dev_active = [0] * self.devices   # page_spread "global": row blocks holding >= 1 page, per device
 
     def set_hbm_pool(self, tokens, block):
         """HBM-first page placement with spill (module docstring). Call before the first ``sync``."""
+        if self.opt_place or self.track:
+            raise ValueError("HBM-first spill is not combined with rowblock_merge / rowblock_affinity / page_spread")
         self.hbm_pool, self.block = int(tokens), max(1, int(block))
 
     def hbm_tokens(self, rid):
@@ -102,8 +143,15 @@ class PagedKVAllocator:
                 if b is not None:
                     self.blocks[s][b] -= 1
                     self.active[s] -= self.blocks[s][b] == 0
-            self.dev_load[d] -= len(banks)
+                    if self.spread == "global" and self.blocks[s][b] == 0:
+                        self.dev_active[s // self.banks] -= 1
+            if self.spread == "global":
+                for s, _ in banks:
+                    self.dev_load[s // self.banks] -= 1
+            else:
+                self.dev_load[d] -= len(banks)
             self.pages -= len(banks)
+            self.meta.pop((rid, h), None)
         self.hbm_pages -= self.hbm.pop(rid, 0)
         self.reqs.pop(rid, None)
 
@@ -112,6 +160,9 @@ class PagedKVAllocator:
         requests have reached. Idempotent for a given batch."""
         for rid in [rid for rid, req in self.reqs.items() if req.status != RequestStatus.RUNNING]:
             self._free(rid)
+        if self.affinity == "free":            # busiest bank per device (kept up to date as pages are placed)
+            self._dev_max = [max(self._bank_ns(x) for x in range(dv * self.banks, (dv + 1) * self.banks))
+                             for dv in range(self.devices)]
         free = None
         if self.hbm_pool:
             open_tokens = sum(-(-(k % self.P) // self.block) * self.block
@@ -139,7 +190,11 @@ class PagedKVAllocator:
                 if ent is None:
                     d = min(range(self.devices), key=self.dev_load.__getitem__)
                     ent = self.inst[(req.id, h)] = (d, [])
+                    if self.track:
+                        self.meta[(req.id, h)] = (set(), set())
                 d, banks = ent
+                while self.opt_place and len(banks) < n:
+                    self._place_opt(req.id, h, d, banks)
                 while len(banks) < n:
                     bank_range = range(d * self.banks, (d + 1) * self.banks)
                     if not self.ppb:
@@ -155,8 +210,96 @@ class PagedKVAllocator:
                     self.dev_load[d] += 1
                     self.pages += 1
                     banks.append((s, b))
+                    if self.track:
+                        self.meta[(req.id, h)][0].add((s, b))
+                        self.meta[(req.id, h)][1].add(d)
         if free is not None:
             self.hbm_peak = max(self.hbm_peak, self.hbm_pool - free)
+
+    def _bank_ns(self, s):
+        return self.load[s] * self.page_ns + self.active[s] * self.block_ns
+
+    def _dev_ns(self, d):
+        """Device d's page + row-block time summed over its banks (page_spread "global" placement)."""
+        return self.dev_load[d] * self.page_ns + self.dev_active[d] * self.block_ns
+
+    def _place_opt(self, rid, h, d, banks):
+        """Place one page of instance (rid, h) under rowblock_affinity / page_spread "global" (module docstring)."""
+        s = b = None
+        if self.affinity == "auto":
+            if self.pages < self.merge_min_pages:
+                return self._place_default_opt(rid, h, d, banks)
+            if banks:
+                s, b = banks[-1]
+                if self.blocks[s][b] >= self.ppb:
+                    s = b = None
+            if s is None:                      # open an empty row block on the best bank (of the best device)
+                if self.spread == "global":
+                    d = min(range(self.devices), key=self._dev_ns)
+                bank_range = range(d * self.banks, (d + 1) * self.banks)
+                s = min(bank_range, key=lambda x: self.load[x] * self.page_ns + self.active[x] * self.block_ns)
+                b = next((i for i, c in enumerate(self.blocks[s]) if c == 0), len(self.blocks[s]))
+            return self._commit(rid, h, d, banks, s, b)
+        if self.affinity and banks:
+            s, b = banks[-1]
+            if self.blocks[s][b] >= self.ppb:
+                s = b = None
+        if s is not None and self.affinity == "free":
+            t_own = (self.load[s] + 1) * self.page_ns + self.active[s] * self.block_ns
+            if t_own > (max(self._dev_max) if self.spread == "global" else self._dev_max[s // self.banks]):
+                s = b = None
+        if s is None and self.affinity == "free" and self.spread == "global" and banks:
+            held = self.meta[(rid, h)][1]       # devices already holding the instance: no new Q copy
+            cand = min((x for dv in held for x in range(dv * self.banks, (dv + 1) * self.banks)), key=self._placement_ns)
+            if self._placement_ns(cand) <= max(self._dev_max):
+                s, b = cand, self._block_for(cand)
+        if s is None or self.affinity == "soft":
+            own = (s, b)
+            if self.spread == "global":
+                d = min(range(self.devices), key=self._dev_ns)
+            bank_range = range(d * self.banks, (d + 1) * self.banks)
+            if not self.ppb:
+                s, b = min(bank_range, key=self.load.__getitem__), None
+            elif self.affinity is True:
+                s = min(bank_range, key=lambda x: self.load[x] * self.page_ns + self.active[x] * self.block_ns)
+                b = next((i for i, c in enumerate(self.blocks[s]) if c == 0), len(self.blocks[s]))
+            else:
+                s = min(bank_range, key=self._placement_ns)
+                b = self._block_for(s)
+                if own[0] is not None and ((self.load[own[0]] + 1) * self.page_ns + self.active[own[0]] * self.block_ns
+                                           <= self._placement_ns(s) + self.slack_ns):
+                    s, b = own
+        self._commit(rid, h, d, banks, s, b)
+
+    def _place_default_opt(self, rid, h, d, banks):
+        """The default placement rule (least page + row-block growth, fullest non-full block), on the instance's device
+        or, with page_spread "global", on the least-loaded device."""
+        if self.spread == "global":
+            d = min(range(self.devices), key=self._dev_ns)
+        bank_range = range(d * self.banks, (d + 1) * self.banks)
+        s = min(bank_range, key=self._placement_ns)
+        self._commit(rid, h, d, banks, s, self._block_for(s))
+
+    def _commit(self, rid, h, d, banks, s, b):
+        """Record one page of instance (rid, h) on bank s, row block b (d: the instance's device without global spread)."""
+        dev = s // self.banks
+        if b is not None:
+            if b == len(self.blocks[s]):
+                self.blocks[s].append(0)
+            if self.blocks[s][b] == 0:
+                self.active[s] += 1
+                if self.spread == "global":
+                    self.dev_active[dev] += 1
+            self.blocks[s][b] += 1
+        self.load[s] += 1
+        self.dev_load[dev if self.spread == "global" else d] += 1
+        self.pages += 1
+        banks.append((s, b))
+        if self.track:
+            self.meta[(rid, h)][0].add((s, b))
+            self.meta[(rid, h)][1].add(dev)
+        if self.affinity == "free":
+            self._dev_max[dev] = max(self._dev_max[dev], self._bank_ns(s))
 
     def _block_for(self, s):
         """Row block of bank s for a new page: the fullest one with a free quarter, else an empty one, else a new one."""
@@ -187,8 +330,18 @@ class PagedKVAllocator:
         # New tokens' K/V reach the device as page writes; with an HBM pool only a request with pages there spills more.
         writers = len(ids) if not self.hbm_pool else sum(self.on_device(rid) for rid in ids)
         new_kv = writers * self.kv_heads * self.kv_bytes_token_head
-        pins = (pages * self.partial_bytes + inst * self.q_bytes + new_kv) / self.pin_Bpns
-        host = pages * self.partial_bytes / self.host_Bpns
+        partials, qcopies = pages, inst
+        if self.track:                         # rowblock_merge: one partial per (instance, row block); page_spread
+            partials = qcopies = 0             # "global": one Q per (instance, device)
+            for rid in ids:
+                for h in range(self.kv_heads):
+                    ent = self.inst.get((rid, h))
+                    if ent and ent[1]:
+                        m = self.meta[(rid, h)]
+                        partials += len(m[0]) if self.merge else len(ent[1])
+                        qcopies += len(m[1]) if self.spread == "global" else 1
+        pins = (partials * self.partial_bytes + qcopies * self.q_bytes + new_kv) / self.pin_Bpns
+        host = partials * self.partial_bytes / self.host_Bpns
         if self.ppb:
             return self._rowblock_compute_ns(ids, pages == self.pages) + pins + host
         if pages == self.pages:                # every resident page is attended: the bank counts are the running ones
