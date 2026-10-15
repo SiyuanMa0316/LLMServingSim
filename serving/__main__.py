@@ -214,7 +214,9 @@ def _resolve_attn_offload(instance, instance_id):
     offload device's overlap credit: an optimistic bound), "exclusive" (the whole
     decode batch on the instance's device while the iteration's KV fits, else offloaded)
     or "balanced" (opt-in what-if: per sub-batch, the share of the KV attended from the
-    instance's memory, serially, is chosen to minimize the layer; free placement).
+    instance's memory, serially, is chosen to minimize the layer; free placement, unless
+    "gpu_resident_cache": "nofetch" / "fetch" makes that memory a write-through cache of
+    recently filled pages, serving/core/paged_kv.py).
     With "kv_allocator": "paged", "serial" is per page instead: HBM-first page placement
     with spill, no migration (serving/core/paged_kv.py).
     Optional "gpu_open_page_tokens": P -- paged KV whose open (last, part-full) page of

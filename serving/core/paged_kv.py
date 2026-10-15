@@ -47,7 +47,16 @@ Opt-in what-ifs (decode_attention_offload keys, all off by default; MultiPIMSim 
 - ``page_spread`` "global" (default "device"): a new page (with affinity: a new row block) goes to the device with the
   least page + row-block time instead of the instance's own device; Q crosses the pins once per (instance, device)
   holding its pages.
+
+HBM write-through page cache (``gpu_resident_cache`` "nofetch" / "fetch" with ``gpu_resident_mode`` "balanced",
+``set_hbm_cache``): every full page lives on the device, as without it, and the instance's memory caches the most
+recently filled pages. A page that fills was the open page (or, at the handoff, prefilled KV), so it enters the cache at
+no cost. The cache holds up to ``gpu_resident_kv_tokens`` tokens including every decode request's open page (counted in
+KV-manager blocks); when it is over, the oldest entries (FIFO by insertion) are dropped, for free. A page is all KV heads
+of one request's P tokens. The instance may attend only cached pages ("nofetch"), or copy missing pages from the device
+("fetch": the trace generator prices the copy and ``commit_plans`` inserts the fetched pages as the newest entries).
 """
+from collections import OrderedDict
 import json
 import os
 
@@ -112,12 +121,69 @@ class PagedKVAllocator:
         self.track = self.merge or self.spread == "global"
         self.meta = {}                         # (request id, kv head) -> (its row blocks {(bank, block)}, its devices)
         self.dev_active = [0] * self.devices   # page_spread "global": row blocks holding >= 1 page, per device
+        self.cache_on = False                  # HBM write-through page cache (set_hbm_cache)
 
     def set_hbm_pool(self, tokens, block):
         """HBM-first page placement with spill (module docstring). Call before the first ``sync``."""
         if self.opt_place or self.track:
             raise ValueError("HBM-first spill is not combined with rowblock_merge / rowblock_affinity / page_spread")
         self.hbm_pool, self.block = int(tokens), max(1, int(block))
+
+    def set_hbm_cache(self, tokens, block, fetch):
+        """HBM write-through page cache (module docstring). Call before the first ``sync``."""
+        if self.hbm_pool:
+            raise ValueError("the HBM page cache is not combined with HBM-first spill")
+        self.cache_on, self.cache_pool, self.block, self.cache_fetch = True, int(tokens), max(1, int(block)), bool(fetch)
+        self.cache = OrderedDict()             # (request id, page index) -> None, oldest first
+        self.cached = {}                       # request id -> set of its cached page indices
+        self.cache_seen = {}                   # request id -> pages already filled (and inserted once)
+        self.cache_cap = self.cache_pool       # this iteration's room for full pages (pool - open pages)
+        self.plan_sink = None                  # the trace generator's per-sub-batch plans while it synthesizes a trace
+        self.last_cache = {}                   # the kept trace's plans, summed (for observers)
+        self.cache_totals = dict(iterations=0, short=0, fetched_pages=0, evicted_pages=0, inserted_pages=0)
+
+    def _cache_insert(self, rid, i):
+        self.cache[(rid, i)] = None
+        self.cached.setdefault(rid, set()).add(i)
+
+    def _cache_evict(self):
+        while len(self.cache) * self.P > self.cache_cap and self.cache:
+            (rid, i), _ = self.cache.popitem(last=False)
+            self.cached[rid].discard(i)
+            self.cache_totals["evicted_pages"] += 1
+
+    def cached_tokens(self, rid):
+        """Full-page tokens of request ``rid`` in the instance's memory (HBM page cache)."""
+        return len(self.cached.get(rid, ())) * self.P
+
+    def commit_plans(self, plans):
+        """Apply the kept trace's per-sub-batch plans: fetch the pages they copy from the device (newest entries)."""
+        tot = dict(short=0, fetch_tokens=0, full_tokens=0, cached_tokens=0, x_tokens=0.0, x_free_tokens=0.0)
+        for ids, ks, fetch_tokens, xc, x, x_free in plans.values():
+            full = sum((k // self.P) * self.P for k in ks)
+            tot["full_tokens"] += full
+            tot["cached_tokens"] += xc * full
+            tot["x_tokens"] += x * full
+            tot["x_free_tokens"] += x_free * full
+            tot["short"] |= x_free > xc + 1e-9
+            need = fetch_tokens
+            for rid, k in zip(ids, ks):
+                if need <= 0:
+                    break
+                have = self.cached.get(rid, set())
+                for i in range(k // self.P - 1, -1, -1):
+                    if need <= 0:
+                        break
+                    if i not in have:
+                        self._cache_insert(rid, i)
+                        self.cache_totals["fetched_pages"] += 1
+                        tot["fetch_tokens"] += self.P
+                        need -= self.P
+        self._cache_evict()
+        self.cache_totals["iterations"] += 1
+        self.cache_totals["short"] += tot["short"]
+        tot["cache_tokens"] = len(self.cache) * self.P
+        self.last_cache = tot
 
     def hbm_tokens(self, rid):
         """Full-page tokens of request ``rid`` in the instance's memory."""
@@ -154,6 +220,10 @@ class PagedKVAllocator:
             self.meta.pop((rid, h), None)
         self.hbm_pages -= self.hbm.pop(rid, 0)
         self.reqs.pop(rid, None)
+        if self.cache_on:
+            for i in self.cached.pop(rid, ()):
+                del self.cache[(rid, i)]
+            self.cache_seen.pop(rid, None)
 
     def sync(self, batch):
         """Free the pages of requests that left the running set; place the full pages this iteration's decode
@@ -215,6 +285,20 @@ class PagedKVAllocator:
                         self.meta[(req.id, h)][1].add(d)
         if free is not None:
             self.hbm_peak = max(self.hbm_peak, self.hbm_pool - free)
+        if self.cache_on:                      # newly filled pages enter the cache; open pages take their blocks
+            open_tokens = sum(-(-(k % self.P) // self.block) * self.block
+                              for q, k in zip(batch.q_list, batch.k_list) if q == 1)
+            self.cache_cap = max(0, self.cache_pool - open_tokens)
+            for req, q, k in zip(batch.requests, batch.q_list, batch.k_list):
+                if q != 1:
+                    continue
+                n = k // self.P
+                for i in range(self.cache_seen.get(req.id, 0), n):
+                    self._cache_insert(req.id, i)
+                    self.cache_totals["inserted_pages"] += 1
+                if n > self.cache_seen.get(req.id, 0):
+                    self.cache_seen[req.id] = n
+            self._cache_evict()
 
     def _bank_ns(self, s):
         return self.load[s] * self.page_ns + self.active[s] * self.block_ns

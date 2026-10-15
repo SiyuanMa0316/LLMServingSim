@@ -135,6 +135,7 @@ class BatchCtx:
     offload_whole: tuple = None  # sub_batch_barrier false: (n_decode, kv mean, max, min) of both sub-batches together
     offload_share: float = 1.0   # ... and this sub-batch's share of their decode KV tokens
     offload_whole_ns: float = None  # ... or, with a page allocator, both sub-batches' attention time (ns)
+    balanced_plan: tuple = None     # gpu_resident_mode "balanced" with the HBM page cache: this sub-batch's choice, memoized
 
 
 @dataclass
@@ -1100,6 +1101,76 @@ def _decode_request_ids(batch):
     return [req.id for req, q in zip(batch.requests, batch.q_list) if q == 1]
 
 
+def _balanced_cached_plan(off, bctx, f, t_hbm, t_gpu_decode, t_attn, n_device, in_bytes, out_bytes, t_prefill,
+                          chunk_kv_bytes):
+    """gpu_resident_mode "balanced" with the HBM write-through page cache (paged_kv.py): this sub-batch's split.
+
+    The instance attends its open pages plus a share x of the full-page KV from HBM, serially with its other work; the
+    device attends the rest in parallel (its time scaled by 1 - x, as in the free-copy mode). The target x* is the
+    free-copy mode's choice on the same grid, within what the cache can hold: x <= (this sub-batch's pool share - its open
+    pages in KV blocks) / its full-page tokens (the free-copy mode bounds x by pool share / all decode tokens, slightly more
+    generously). The HBM share must be cached. "nofetch": the best x <= xc,
+    the cached share of this sub-batch's full pages (a shortfall is accepted). "fetch": x = x*, copying the missing
+    (x* - xc) share from the device first; the copied pages stay cached, so a shortfall is paid once.
+    The copy (one page = all KV heads, per layer) leaves through the device's pins, serially with the device's own work
+    (external IO is serial with compute in the DREAM model; the bank column paths that would read the KV out are the ones
+    that compute), and crosses the link pipelined with the pins (_offload_transfer_ns). The instance attends the pages
+    it already holds while the copy streams in, then the fetched ones. Returns (t_gpu_decode, t_attn, n_device, in_bytes,
+    out_bytes, t_fetch) of the choice, then records the plan in the allocator's plan_sink for commit_plans."""
+    alloc = off["allocator"]
+    ids = _decode_request_ids(bctx.batch)
+    ks = list(bctx.batch.decode_k_list)
+    full = sum((k // alloc.P) * alloc.P for k in ks)
+    xc = (sum(min(alloc.cached_tokens(rid), (k // alloc.P) * alloc.P) for rid, k in zip(ids, ks)) / full) if full else 1.0
+    bytes_per_token = alloc.kv_heads * alloc.kv_bytes_token_head          # one layer, all KV heads
+    steps = max(1, int(off.get("split_steps", 20)))
+    pool = bctx.hbm_resident_tokens if bctx.hbm_resident_tokens >= 0 else off["gpu_resident"]
+    open_blocks = sum(-(-(k % alloc.P) // alloc.block) * alloc.block for k in ks)
+    x_cap = min(1.0, max(0.0, pool - open_blocks) / full) if full else 1.0
+    xs = sorted(set([x_cap * i / steps for i in range(steps + 1)] + [min(xc, x_cap)]))
+    span = max(0.0, t_hbm - t_gpu_decode)
+
+    def price(x):
+        fetch_tokens = max(0.0, x - xc) * full if alloc.cache_fetch else 0.0
+        t_fetch = fetch_tokens * bytes_per_token / off["pin_bw"] if fetch_tokens else 0.0
+        held, fetched = min(x, xc) * span, max(0.0, x - xc) * span
+        gd = t_gpu_decode + max(held, t_fetch) + fetched if t_fetch else t_gpu_decode + x * span
+        if x >= 1.0:
+            ta, nd, ib, ob = 0.0, 0, 0.0, 0.0
+            to = (off["link_latency"] + chunk_kv_bytes / off["link_bw"] if chunk_kv_bytes > 0 else 0.0) + t_fetch
+        else:
+            ta, nd, ib, ob = (1.0 - x) * t_attn + t_fetch, n_device, (1.0 - x) * in_bytes, (1.0 - x) * out_bytes
+            to = (2 * off["link_latency"] + chunk_kv_bytes / off["link_bw"] + _offload_transfer_ns(off, ib) + ta
+                  + _offload_transfer_ns(off, ob)) if nd else (
+                off["link_latency"] + chunk_kv_bytes / off["link_bw"] if chunk_kv_bytes > 0 else 0.0)
+        lat = max(t_prefill + gd, max(0.0, to - bctx.offload_hide_ns))
+        return lat, (gd, ta, nd, ib, ob, t_fetch), fetch_tokens
+
+    x_free = _free_copy_x(xs, t_prefill, t_gpu_decode, span, t_attn, n_device, in_bytes, out_bytes, chunk_kv_bytes,
+                          off, bctx)
+    x = x_free if alloc.cache_fetch else min((x for x in xs if x <= xc + 1e-12), key=lambda x: (price(x)[0], x))
+    lat, choice, fetch_tokens = price(x)
+    if alloc.plan_sink is not None:
+        alloc.plan_sink[id(bctx)] = (ids, ks, fetch_tokens, xc, x, x_free)
+    return choice
+
+
+def _free_copy_x(xs, t_prefill, t_gpu_decode, span, t_attn, n_device, in_bytes, out_bytes, chunk_kv_bytes, off, bctx):
+    """The share x the free-copy "balanced" mode would pick on the same grid (no cache constraint, no copy)."""
+    def lat(x):
+        gd = t_gpu_decode + x * span
+        if x >= 1.0:
+            to = off["link_latency"] + chunk_kv_bytes / off["link_bw"] if chunk_kv_bytes > 0 else 0.0
+        elif n_device:
+            to = (2 * off["link_latency"] + chunk_kv_bytes / off["link_bw"]
+                  + _offload_transfer_ns(off, (1.0 - x) * in_bytes) + (1.0 - x) * t_attn
+                  + _offload_transfer_ns(off, (1.0 - x) * out_bytes))
+        else:
+            to = off["link_latency"] + chunk_kv_bytes / off["link_bw"] if chunk_kv_bytes > 0 else 0.0
+        return max(t_prefill + gd, max(0.0, to - bctx.offload_hide_ns))
+    return min(xs, key=lambda x: (lat(x), x))
+
+
 def _offload_attention_latency_ns(ctx, bctx):
     """Attention latency when decode attention runs on another device (DREAM).
 
@@ -1183,6 +1254,13 @@ def _offload_attention_latency_ns(ctx, bctx):
                 if f >= 1.0:
                     t_attn = t_hbm
                     t_gpu_decode = 0.0      # with paged KV the open pages are part of the HBM-resident batch
+            elif mode == "balanced" and off["allocator"] is not None and off["allocator"].cache_on:
+                if bctx.balanced_plan is None:
+                    bctx.balanced_plan = _balanced_cached_plan(off, bctx, f, t_hbm, t_gpu_decode, t_attn, n_device,
+                                                               in_bytes, out_bytes, t_prefill, chunk_kv_bytes)
+                t_gpu_decode, t_attn, n_device, in_bytes, out_bytes, t_fetch = bctx.balanced_plan[:6]
+                if t_fetch and not n_device:            # all on HBM, but the copy still crosses the device's pins
+                    t_offload = off["link_latency"] + chunk_kv_bytes / off["link_bw"] + t_fetch
             elif mode == "balanced":
                 # Opt-in what-if (upper bound, free placement like exclusive): every full page is on the offload device
                 # and the instance's memory holds a copy of any share x of them (x * decode KV <= the pool share). The
@@ -1218,7 +1296,7 @@ def _offload_attention_latency_ns(ctx, bctx):
         if n_device:
             t_offload = (2 * off["link_latency"] + chunk_kv_bytes / off["link_bw"]
                          + _offload_transfer_ns(off, in_bytes) + t_attn + _offload_transfer_ns(off, out_bytes))
-        elif chunk_kv_bytes > 0:            # HBM-first: no decode request has a page on the device
+        elif chunk_kv_bytes > 0 and not t_offload:   # HBM-first: no decode request has a page on the device
             t_offload = off["link_latency"] + chunk_kv_bytes / off["link_bw"]
     elif chunk_kv_bytes > 0:
         t_offload = off["link_latency"] + chunk_kv_bytes / off["link_bw"]
@@ -1970,6 +2048,12 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
                              f"decode_attention_offload.gpu_open_page_tokens to the bundle's page size {alloc.P}")
         if attn_offload.get("gpu_resident_kv_tokens") and attn_offload.get("gpu_resident_mode", "serial") == "serial":
             alloc.set_hbm_pool(attn_offload["gpu_resident_kv_tokens"], attn_offload["_kv_block_tokens"])
+        cache = attn_offload.get("gpu_resident_cache")
+        if cache and not alloc.cache_on:
+            if cache not in ("nofetch", "fetch") or attn_offload.get("gpu_resident_mode") != "balanced":
+                raise ValueError("decode_attention_offload.gpu_resident_cache must be 'nofetch' or 'fetch', with "
+                                 "gpu_resident_mode 'balanced'")
+            alloc.set_hbm_cache(attn_offload["gpu_resident_kv_tokens"], attn_offload["_kv_block_tokens"], cache == "fetch")
         alloc.sync(batch)
         attn_offload = dict(attn_offload, _paged_allocator=alloc)
 
@@ -1987,6 +2071,12 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
                         runtime_max_num_seqs=max_num_seqs,
                         tp_dim=tp_dim, ep_dim=ep_dim, dp_sum_total_len=dp_sum_total_len,
                         attn_offload=attn_offload, yield_to_offload=yield_to_offload)
+    # HBM page cache (gpu_resident_cache): each synthesized trace records its sub-batches' plans; the kept one is applied
+    cache_alloc = attn_offload.get("_paged_allocator") if attn_offload else None
+    if cache_alloc is not None and not cache_alloc.cache_on:
+        cache_alloc = None
+    if cache_alloc is not None:
+        cache_alloc.plan_sink = plans = {}
     if not enable_sub_batch_interleaving:
         rows, block_starts = _synthesize_trace(*synth_args, batch, max_len, **synth_kwargs)
     else:
@@ -2005,9 +2095,16 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
                 # Keep the split only when it is cheaper: a small, memory-bound batch
                 # split in two reads every weight twice and can lose more than the
                 # overlap with the offloaded attention gains.
+                if cache_alloc is not None:
+                    cache_alloc.plan_sink = whole_plans = {}
                 whole_rows, whole_starts = _synthesize_trace(*synth_args, batch, max_len, **synth_kwargs)
                 if _rows_compute_ns(whole_rows) <= _rows_compute_ns(rows):
                     rows, block_starts = whole_rows, whole_starts
+                    if cache_alloc is not None:
+                        plans = whole_plans
+    if cache_alloc is not None:
+        cache_alloc.plan_sink = None
+        cache_alloc.commit_plans(plans)
 
     stage_boundaries = _pp_stage_boundaries(block_starts, pp_size)
 
