@@ -1,0 +1,90 @@
+{
+  "knobs": {
+    "d_model": 5120,
+    "decode_attention": {
+      "acc_bits": 23,
+      "chunk_tokens": 128,
+      "column_bits": 128,
+      "lanes": 1024,
+      "lb_rows_used": {
+        "qk": 46,
+        "sv": 18
+      },
+      "model": "token_packed",
+      "out_bits": 24,
+      "paged": {
+        "page_tokens": 256,
+        "page_ns": 16185.0,
+        "page_parts_ns": {
+          "q_load": 320.0,
+          "qk": 10240.0,
+          "score_flush": 1760.0,
+          "softmax": 3225.0,
+          "sv": 0.0,
+          "readout": 640.0
+        },
+        "partial_bytes": 2120.0,
+        "q_bytes": 1024,
+        "kv_bytes_per_token_head": 256,
+        "slots": 2048,
+        "banks_per_device": 16,
+        "n_kv_heads": 8,
+        "pin_bandwidth_Bps": 409600000000.0,
+        "host_Bps": 3352000000000.0,
+        "open_page_on_host": true,
+        "same_device": true,
+        "execution": "lockstep per device",
+        "sv_mapping": "RMNCK",
+        "arrays_per_bank": 4,
+        "rowblock_ns": 43520.0,
+        "pages_per_rowblock": 4
+      },
+      "params": {
+        "t_tick_ns": 1.25,
+        "t_row_ns": 40.0,
+        "t_beat_ns": 5.0,
+        "t_popcount_ns": 3.75,
+        "row_popcounts_per_row_fetch": 4.0,
+        "score_bits": 22,
+        "prob_bits": 8,
+        "exp_ticks": 548,
+        "prob_writeback": true,
+        "sv_add_ticks": 0,
+        "stripe_slots": 2,
+        "qk_order": "NM",
+        "out_planes": 16,
+        "stat_bits_per_head": 72,
+        "host_Bps": 3352000000000.0,
+        "page_tokens": 256,
+        "page_same_die": true,
+        "page_open_on_host": true,
+        "sv_mapping": "RMNCK",
+        "sv_resident_heads": 2,
+        "arrays_per_bank": 4,
+        "sv_out_words": false,
+        "softmax_split": true
+      },
+      "pin_bandwidth_Bps": 409600000000.0,
+      "popcount_width_bits": 128,
+      "qk_order": "NM",
+      "slots": 2048,
+      "sv_mapping": "RMNCK",
+      "t_row_ns": 40.0,
+      "tokens_per_row": 8
+    },
+    "dtype": "int8",
+    "ffn_dim": 25600,
+    "model": "Qwen/Qwen3-32B",
+    "n_heads": 64,
+    "n_kv_heads": 8,
+    "pim_compile_mode": "exhaustive",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      1
+    ],
+    "vocab_size": 151936,
+    "derived_from": "GRACE_PIM_LA4_TOKENPACKED_RMNCK_PAGED_P8SS_INT8",
+    "derived_note": "paged record and kv_relayout re-priced for one 128-bit column per bank per tCCD_L (4 tCK = 5 ns at 6400 MT/s, JESD209-5 Table 339 BL/n_max): 40 ns LB rows, 5 ns beats; 800 MHz logic, 4 popcount trees per logical array (MultiPIMSim experiments/pim-duet-tccdl-gap1/make_bundle.py); other tables copied from the source bundle"
+  },
+  "source_paths": []
+}
