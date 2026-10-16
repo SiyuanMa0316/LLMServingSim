@@ -53,6 +53,14 @@ Opt-in what-ifs (decode_attention_offload keys, all off by default; MultiPIMSim 
   max(head + compute x ``pin_overlap_compute_factor`` (default 1.025: the staged readout's column slots) + tail, pins)
   instead of compute + pins. Head is the first lockstep round's Q (at most one per bank) and tail its last round's
   partials (at most one per bank), which have no compute to hide behind. The host merge stays serial.
+- ``sub_batch_placement`` (MultiPIMSim experiments/pim-duet-default-audit; bundles without V row blocks only): stable
+  sub-batch membership and sub-batch-aware placement, so that a lockstep device can run the two interleaved sub-batches
+  the way ``sub_batch_barrier`` false prices them. A request joins the sub-batch with fewer labeled requests at its first
+  decode and keeps it until it leaves the running set (``sub_batch_of``; the trace generator splits decodes by it). A new
+  page goes to the device, then the bank, with the fewest pages of its request's sub-batch (ties: fewest pages; with
+  page_spread "device" the instance's device as usual). Each bank then holds balanced A and B pages, so a sub-batch's
+  own pass is about its share of the two together (the trace generator also floors each sub-batch's charge at its own
+  pass, ``cost_ns`` of its requests).
 
 HBM write-through page cache (``gpu_resident_cache`` "nofetch" / "fetch" with ``gpu_resident_mode`` "balanced",
 ``set_hbm_cache``): every full page lives on the device, as without it, and the instance's memory caches the most
@@ -128,7 +136,15 @@ class PagedKVAllocator:
         if self.pin_overlap and self.ppb:
             raise ValueError("pin_overlap needs a bundle without V row blocks (pages_per_rowblock 0)")
         self.last_cost = {}                    # the last cost_ns call's terms (ns), for observers
-        self.opt_place = self.affinity or self.spread == "global"
+        self.sub_aware = bool(opts.get("sub_batch_placement", False))
+        if self.sub_aware and self.ppb:
+            raise ValueError("sub_batch_placement needs a bundle without V row blocks (pages_per_rowblock 0)")
+        self.sub_batch = {}                    # sub_batch_placement: request id -> its sub-batch (0 / 1), for its life
+        self.sub_reqs = {}                     # ... request id -> Request, while labeled
+        self.sub_count = [0, 0]                # ... labeled requests per sub-batch
+        self.sub_bank = [[0] * self.slots for _ in range(2)]     # ... pages of each sub-batch per bank
+        self.sub_dev = [[0] * self.devices for _ in range(2)]    # ... and per device
+        self.opt_place = self.affinity or self.spread == "global" or self.sub_aware
         self.track = self.merge or self.spread == "global"
         self.meta = {}                         # (request id, kv head) -> (its row blocks {(bank, block)}, its devices)
         self.dev_active = [0] * self.devices   # page_spread "global": row blocks holding >= 1 page, per device
@@ -137,7 +153,8 @@ class PagedKVAllocator:
     def set_hbm_pool(self, tokens, block):
         """HBM-first page placement with spill (module docstring). Call before the first ``sync``."""
         if self.opt_place or self.track:
-            raise ValueError("HBM-first spill is not combined with rowblock_merge / rowblock_affinity / page_spread")
+            raise ValueError("HBM-first spill is not combined with rowblock_merge / rowblock_affinity / page_spread / "
+                             "sub_batch_placement")
         self.hbm_pool, self.block = int(tokens), max(1, int(block))
 
     def set_hbm_cache(self, tokens, block, fetch):
@@ -200,6 +217,10 @@ class PagedKVAllocator:
         """Full-page tokens of request ``rid`` in the instance's memory."""
         return self.hbm.get(rid, 0) * self.P
 
+    def sub_batch_of(self, rid):
+        """sub_batch_placement: request ``rid``'s sub-batch (0 / 1), or None if it is not labeled."""
+        return self.sub_batch.get(rid)
+
     def on_device(self, rid):
         """Whether request ``rid`` has any full page on the device."""
         return (rid, 0) in self.inst
@@ -217,6 +238,9 @@ class PagedKVAllocator:
             d, banks = ent
             for s, b in banks:
                 self.load[s] -= 1
+                if self.sub_aware:
+                    self.sub_bank[self.sub_batch[rid]][s] -= 1
+                    self.sub_dev[self.sub_batch[rid]][s // self.banks] -= 1
                 if b is not None:
                     self.blocks[s][b] -= 1
                     self.active[s] -= self.blocks[s][b] == 0
@@ -241,6 +265,10 @@ class PagedKVAllocator:
         requests have reached. Idempotent for a given batch."""
         for rid in [rid for rid, req in self.reqs.items() if req.status != RequestStatus.RUNNING]:
             self._free(rid)
+        if self.sub_aware:                     # labels of requests that left the running set (pages freed above)
+            for rid in [rid for rid, req in self.sub_reqs.items() if req.status != RequestStatus.RUNNING]:
+                self.sub_count[self.sub_batch.pop(rid)] -= 1
+                del self.sub_reqs[rid]
         if self.affinity == "free":            # busiest bank per device (kept up to date as pages are placed)
             self._dev_max = [max(self._bank_ns(x) for x in range(dv * self.banks, (dv + 1) * self.banks))
                              for dv in range(self.devices)]
@@ -252,6 +280,10 @@ class PagedKVAllocator:
         for req, q, k in zip(batch.requests, batch.q_list, batch.k_list):
             if q != 1:
                 continue
+            if self.sub_aware and req.id not in self.sub_batch:   # first decode: join the smaller sub-batch, for life
+                sub = 0 if self.sub_count[0] <= self.sub_count[1] else 1
+                self.sub_batch[req.id], self.sub_reqs[req.id] = sub, req
+                self.sub_count[sub] += 1
             n = k // self.P
             if n == 0:
                 continue
@@ -319,7 +351,14 @@ class PagedKVAllocator:
         return self.dev_load[d] * self.page_ns + self.dev_active[d] * self.block_ns
 
     def _place_opt(self, rid, h, d, banks):
-        """Place one page of instance (rid, h) under rowblock_affinity / page_spread "global" (module docstring)."""
+        """Place one page of instance (rid, h) under rowblock_affinity / page_spread "global" / sub_batch_placement
+        (module docstring)."""
+        if self.sub_aware:                     # fewest pages of its sub-batch, then fewest pages (device, then bank)
+            sub = self.sub_batch[rid]
+            if self.spread == "global":
+                d = min(range(self.devices), key=lambda x: (self.sub_dev[sub][x], self.dev_load[x]))
+            s = min(range(d * self.banks, (d + 1) * self.banks), key=lambda x: (self.sub_bank[sub][x], self.load[x]))
+            return self._commit(rid, h, d, banks, s, None)
         s = b = None
         if self.affinity == "auto":
             if self.pages < self.merge_min_pages:
@@ -390,6 +429,9 @@ class PagedKVAllocator:
         self.dev_load[dev if self.spread == "global" else d] += 1
         self.pages += 1
         banks.append((s, b))
+        if self.sub_aware:
+            self.sub_bank[self.sub_batch[rid]][s] += 1
+            self.sub_dev[self.sub_batch[rid]][dev] += 1
         if self.track:
             self.meta[(rid, h)][0].add((s, b))
             self.meta[(rid, h)][1].add(dev)

@@ -135,6 +135,7 @@ class BatchCtx:
     offload_whole: tuple = None  # sub_batch_barrier false: (n_decode, kv mean, max, min) of both sub-batches together
     offload_share: float = 1.0   # ... and this sub-batch's share of their decode KV tokens
     offload_whole_ns: float = None  # ... or, with a page allocator, both sub-batches' attention time (ns)
+    offload_own_ns: float = None    # ... and, with sub_batch_placement, this sub-batch's own pass (ns): its charge's floor
     balanced_plan: tuple = None     # gpu_resident_mode "balanced" with the HBM page cache: this sub-batch's choice, memoized
 
 
@@ -1205,6 +1206,9 @@ def _offload_attention_latency_ns(ctx, bctx):
         out_bytes = bctx.n_decode * q_bytes
         if bctx.offload_whole_ns is not None:
             t_attn = bctx.offload_share * bctx.offload_whole_ns
+            if bctx.offload_own_ns is not None:
+                # A lockstep device finishes this sub-batch only when its busiest bank has run this sub-batch's pages.
+                t_attn = max(t_attn, bctx.offload_own_ns)
         elif off.get("allocator") is not None:
             t_attn = off["allocator"].cost_ns(_decode_request_ids(bctx.batch))
         elif bctx.offload_whole is not None:
@@ -1848,6 +1852,13 @@ def _synthesize_interleaved_trace(hardware, model, config, tp_size, pp_size, loc
                 alloc = ctx.attn_offload.get("allocator")
                 whole_ns = (alloc.cost_ns(_decode_request_ids(batches[0]) + _decode_request_ids(batches[1]))
                             if alloc is not None else None)
+                if alloc is not None and alloc.sub_aware:
+                    # sub_batch_placement: each sub-batch's own lockstep pass floors its charge; last_cost stays the
+                    # union's (what the device runs)
+                    union = alloc.last_cost
+                    for b, sub in zip((bctx1, bctx2), batches):
+                        b.offload_own_ns = alloc.cost_ns(_decode_request_ids(sub))
+                    alloc.last_cost = union
                 # HBM-first: split the device's time by the sub-batches' tokens on the device, not their whole KV.
                 dev = ([sum(alloc.device_tokens(rid) for rid in _decode_request_ids(sub)) for sub in batches]
                        if ctx.attn_offload["hbm_spill"] else [0, 0])
@@ -2042,7 +2053,8 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
                                 os.path.join(_variant_root(attn_offload["hardware"], model, variant), "manifest.json"),
                                 {k: attn_offload[k] for k in ("rowblock_merge", "rowblock_affinity", "page_spread",
                                                               "rowblock_affinity_slack_pages", "rowblock_merge_min_pages",
-                                                              "pin_overlap", "pin_overlap_compute_factor")
+                                                              "pin_overlap", "pin_overlap_compute_factor",
+                                                              "sub_batch_placement")
                                  if k in attn_offload})
         if int(attn_offload.get("gpu_open_page_tokens", 0)) != alloc.P:
             raise ValueError(f"kv_allocator 'paged' keeps each request's open page on the instance: set "
@@ -2081,7 +2093,8 @@ def generate_trace(batch, hardware, tp_size, pp_size, local_ep, ep_total, pd_typ
     if not enable_sub_batch_interleaving:
         rows, block_starts = _synthesize_trace(*synth_args, batch, max_len, **synth_kwargs)
     else:
-        batches = _make_sub_batch(batch)
+        sub_alloc = attn_offload.get("_paged_allocator") if attn_offload else None
+        batches = _make_sub_batch(batch, sub_alloc.sub_batch_of if sub_alloc is not None and sub_alloc.sub_aware else None)
         if len(batches) < 2 or len(batches[0].requests) == 0 or len(batches[1].requests) == 0:
             rows, block_starts = _synthesize_trace(*synth_args, batch, max_len, **synth_kwargs)
         else:
@@ -2347,7 +2360,9 @@ def _attn_load_balancer(requests, tp_size, pim_channels=0, channel_split=1):
 # ======================================================================
 
 # spliting one batch into sub-batches to do sub-batch interleaving while using PIM
-def _make_sub_batch(batch):
+def _make_sub_batch(batch, labels=None):
+    """Split a batch in two for sub-batch interleaving. ``labels`` (paged_kv sub_batch_placement: request id -> 0 / 1 or
+    None): a decode with a label goes to its sub-batch; the rest (prefill chunks) go greedily to the lighter side."""
     if len(batch.requests) == 1:
         return [batch]
 
@@ -2368,6 +2383,16 @@ def _make_sub_batch(batch):
     reqs = sorted(batch.requests, key=compute_tokens, reverse=True)
     req_groups = [[], []]
     loads = [0, 0]
+    if labels is not None:
+        rest = []
+        for req in reqs:
+            sub = labels(req.id) if compute_tokens(req) == 1 else None
+            if sub is None:
+                rest.append(req)
+            else:
+                loads[sub] += 1
+                req_groups[sub].append(req)
+        reqs = rest
     for req in reqs:
         target = 0 if loads[0] <= loads[1] else 1
         loads[target] += compute_tokens(req)
