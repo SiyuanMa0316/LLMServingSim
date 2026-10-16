@@ -1,0 +1,102 @@
+{
+  "knobs": {
+    "d_model": 5120,
+    "decode_attention": {
+      "acc_bits": 23,
+      "chunk_tokens": 128,
+      "column_bits": 128,
+      "lanes": 1024,
+      "lb_rows_used": {
+        "fold": 52,
+        "qk": 46,
+        "sv": 33
+      },
+      "model": "token_packed",
+      "out_bits": 26,
+      "paged": {
+        "arrays_per_bank": 1,
+        "banks_per_device": 16,
+        "execution": "lockstep per device",
+        "host_Bps": 3352000000000.0,
+        "kv_bytes_per_token_head": 256,
+        "n_kv_heads": 8,
+        "open_page_on_host": true,
+        "page_ns": 148170.0,
+        "page_parts_ns": {
+          "fold": 7940.0,
+          "q_load": 320.0,
+          "qk": 40960.0,
+          "readout": 2200.0,
+          "score_flush": 1760.0,
+          "softmax": 7950.0,
+          "sv": 87040.0
+        },
+        "page_tokens": 256,
+        "partial_bytes": 2120.0,
+        "pin_bandwidth_Bps": 409600000000.0,
+        "q_bytes": 1024,
+        "same_device": true,
+        "slots": 2048,
+        "sv_mapping": "RMKCN"
+      },
+      "params": {
+        "arrays_per_bank": null,
+        "exp_ticks": 548,
+        "host_Bps": 3352000000000.0,
+        "lb_reuse": false,
+        "out_planes": 16,
+        "page_open_on_host": true,
+        "page_same_die": true,
+        "page_tokens": 256,
+        "prob_bits": 8,
+        "prob_writeback": true,
+        "qk_order": "NM",
+        "row_popcounts_per_row_fetch": 4.0,
+        "score_bits": 22,
+        "softmax_split": false,
+        "stat_bits_per_head": 72,
+        "stripe_slots": 2,
+        "sv_add_ticks": 0,
+        "sv_mapping": "RMKCN",
+        "sv_out_words": false,
+        "sv_resident_heads": 2,
+        "t_beat_ns": 5.0,
+        "t_popcount_ns": 5.0,
+        "t_row_ns": 40.0,
+        "t_tick_ns": 2.5
+      },
+      "pin_bandwidth_Bps": 409600000000.0,
+      "popcount_width_bits": 128,
+      "qk_order": "NM",
+      "slots": 2048,
+      "sv_mapping": "RMKCN",
+      "t_row_ns": 40.0,
+      "tokens_per_row": 8
+    },
+    "dtype": "int8",
+    "ffn_dim": 25600,
+    "model": "Qwen/Qwen3-32B",
+    "n_heads": 64,
+    "n_kv_heads": 8,
+    "pim_compile_mode": "exhaustive",
+    "profile_id": "a100-ae-v1",
+    "tp_degrees": [
+      1
+    ],
+    "vocab_size": 151936
+  },
+  "source_paths": [
+    "LLMCompass/measured_hardware/a100/matmul.csv",
+    "LLMCompass/measured_hardware/a100/softmax.csv",
+    "LLMCompass/measured_hardware/a100/layernorm.csv",
+    "LLMCompass/measured_hardware/a100/gelu.csv",
+    "LLMCompass/configs/GA100.json",
+    "LLMServingSim/profiler/models/qwen3.yaml",
+    "LLMServingSim/profiler/perf/GRACE_PIM_TCCDL_CLK400_TOKENPACKED_PAGED_P8_INT8/Qwen/Qwen3-32B/int8/meta.yaml",
+    "LLMCompass/configs/grace_pim.json",
+    "LLMServingSim/profiler/perf/GRACE_PIM_TCCDL_CLK400_TOKENPACKED_PAGED_P8_INT8/Qwen/Qwen3-32B/int8/tp1/dense.csv",
+    "LLMServingSim/profiler/perf/GRACE_PIM_TCCDL_CLK400_TOKENPACKED_PAGED_P8_INT8/Qwen/Qwen3-32B/int8/tp1/per_sequence.csv",
+    "LLMServingSim/profiler/perf/GRACE_PIM_TCCDL_CLK400_TOKENPACKED_PAGED_P8_INT8/Qwen/Qwen3-32B/int8/tp1/attention.csv",
+    "LLMServingSim/profiler/perf/GRACE_PIM_TCCDL_CLK400_TOKENPACKED_PAGED_P8_INT8/Qwen/Qwen3-32B/int8/tp1/kv_layout.csv"
+  ]
+}
