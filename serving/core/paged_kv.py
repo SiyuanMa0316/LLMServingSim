@@ -47,6 +47,12 @@ Opt-in what-ifs (decode_attention_offload keys, all off by default; MultiPIMSim 
 - ``page_spread`` "global" (default "device"): a new page (with affinity: a new row block) goes to the device with the
   least page + row-block time instead of the instance's own device; Q crosses the pins once per (instance, device)
   holding its pages.
+- ``pin_overlap`` (MultiPIMSim experiments/pim-duet-pin-overlap; bundles without V row blocks only): a drain path. Each
+  page's partial is staged and leaves over the pins while the banks compute the next pages, and the Q of later pages
+  arrives the same way, so the pins run alongside compute instead of after it. The device costs
+  max(head + compute x ``pin_overlap_compute_factor`` (default 1.025: the staged readout's column slots) + tail, pins)
+  instead of compute + pins. Head is the first lockstep round's Q (at most one per bank) and tail its last round's
+  partials (at most one per bank), which have no compute to hide behind. The host merge stays serial.
 
 HBM write-through page cache (``gpu_resident_cache`` "nofetch" / "fetch" with ``gpu_resident_mode`` "balanced",
 ``set_hbm_cache``): every full page lives on the device, as without it, and the instance's memory caches the most
@@ -117,6 +123,11 @@ class PagedKVAllocator:
             raise ValueError(f"page_spread must be 'device' or 'global', got {self.spread!r}")
         if (self.merge or self.affinity) and not self.ppb:
             raise ValueError("rowblock_merge / rowblock_affinity need a bundle with V row blocks (pages_per_rowblock)")
+        self.pin_overlap = bool(opts.get("pin_overlap", False))
+        self.overlap_factor = float(opts.get("pin_overlap_compute_factor", 1.025))
+        if self.pin_overlap and self.ppb:
+            raise ValueError("pin_overlap needs a bundle without V row blocks (pages_per_rowblock 0)")
+        self.last_cost = {}                    # the last cost_ns call's terms (ns), for observers
         self.opt_place = self.affinity or self.spread == "global"
         self.track = self.merge or self.spread == "global"
         self.meta = {}                         # (request id, kv head) -> (its row blocks {(bank, block)}, its devices)
@@ -427,18 +438,26 @@ class PagedKVAllocator:
         pins = (partials * self.partial_bytes + qcopies * self.q_bytes + new_kv) / self.pin_Bpns
         host = partials * self.partial_bytes / self.host_Bpns
         if self.ppb:
-            return self._rowblock_compute_ns(ids, pages == self.pages) + pins + host
-        if pages == self.pages:                # every resident page is attended: the bank counts are the running ones
-            busiest = max(self.load) if self.pages else 0
+            compute = self._rowblock_compute_ns(ids, pages == self.pages)
         else:
-            count = {}
-            for rid in ids:
-                for h in range(self.kv_heads):
-                    ent = self.inst.get((rid, h))
-                    for s, _ in (ent[1] if ent else ()):
-                        count[s] = count.get(s, 0) + 1
-            busiest = max(count.values(), default=0)
-        return busiest * self.page_ns + pins + host
+            if pages == self.pages:            # every resident page is attended: the bank counts are the running ones
+                busiest = max(self.load) if self.pages else 0
+            else:
+                count = {}
+                for rid in ids:
+                    for h in range(self.kv_heads):
+                        ent = self.inst.get((rid, h))
+                        for s, _ in (ent[1] if ent else ()):
+                            count[s] = count.get(s, 0) + 1
+                busiest = max(count.values(), default=0)
+            compute = busiest * self.page_ns
+        self.last_cost = dict(compute=compute, pins=pins, host=host, head=0.0, tail=0.0)
+        if not self.pin_overlap:
+            return compute + pins + host
+        head = min(qcopies, pages, self.slots) * self.q_bytes / self.pin_Bpns
+        tail = min(partials, self.slots) * self.partial_bytes / self.pin_Bpns
+        self.last_cost.update(head=head, tail=tail)
+        return max(head + compute * self.overlap_factor + tail, pins) + host
 
     def _rowblock_compute_ns(self, ids, all_attended):
         """Lockstep per device with V row blocks: page steps for the busiest bank's pages, then row-block steps for the
